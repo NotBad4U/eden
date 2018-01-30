@@ -1,4 +1,5 @@
 use slab::Slab;
+use shred::{DispatcherBuilder, Resource, Resources, System};
 
 use agent::Agent;
 use packet::Packet;
@@ -22,11 +23,6 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
             views: Vec::new(),
             chan: channel(),
         }
-    }
-
-    pub fn run(&mut self) {
-        self.process_agent();
-        self.process_messages();
     }
 
     pub fn process_agent(&mut self) {
@@ -62,6 +58,15 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
 
     pub fn get_nb_agents_alive(&self) -> usize {
         self.agents.len()
+    }
+}
+
+impl<'a, A: Agent, M: Eq> System<'a> for AgentSystem<A, M> {
+    type SystemData = ();
+
+    fn run(&mut self, _: Self::SystemData) {
+        self.process_agent();
+        self.process_messages();
     }
 }
 
@@ -123,8 +128,23 @@ mod test_sytem {
 
         car_sys.add_remote_system(0, pers_sys.get_sender());
 
-        car_sys.run();
-        pers_sys.run();
         assert_eq!(0, pers_sys.get_nb_message_inbox());
+    }
+
+    #[test]
+    fn it_should_run_with_dispatcher() {
+        let mut pers_sys: AgentSystem<Person, MessageType>;
+        let mut car_sys: AgentSystem<Car, MessageType>;
+        car_sys = AgentSystem::new(0);
+        pers_sys = AgentSystem::new(1);
+
+
+        let mut resources = Resources::new();
+        let mut dispatcher = DispatcherBuilder::new()
+            .add(pers_sys, "person", &[])
+            .add(car_sys, "car", &[])
+            .build();
+
+        dispatcher.dispatch(&mut resources);
     }
 }
