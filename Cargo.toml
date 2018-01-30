@@ -1,0 +1,7 @@
+[package]
+name = "eden"
+version = "0.1.0"
+authors = ["Alessio Coltellacci <lightplay8@gmail.com>"]
+
+[dependencies]
+slab = "0.4"
