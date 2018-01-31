@@ -1,35 +1,35 @@
 use std::cmp::Ordering;
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct Recipient {
-    pub system_id: u8,
-    pub agent_id: usize,
+pub enum Recipient {
+    Agent { agent_id: usize },
+    Broadcast,
 }
 
 #[derive(Clone, Eq)]
-pub struct Packet<M> {
+pub struct Packet<M: Clone> {
+    pub system_id: u8,
     pub priority: u8,
     pub type_agent: u8,
     pub recipient: Recipient,
     pub message: M,
 }
 
-impl <M: Eq>Ord for Packet<M> {
+impl <M: Eq + Clone>Ord for Packet<M> {
     fn cmp(&self, other: &Packet<M>) -> Ordering {
         self.priority.cmp(&other.priority)
     }
 }
 
-impl <M: Eq>PartialOrd for Packet<M> {
+impl <M: Eq + Clone>PartialOrd for Packet<M> {
     fn partial_cmp(&self, other: &Packet<M>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl <M: Eq>PartialEq for Packet<M> {
+impl <M: Eq + Clone>PartialEq for Packet<M> {
     fn eq(&self, other: &Packet<M>) -> bool {
-        self.recipient.system_id == other.recipient.system_id
-        && self.recipient.agent_id == other.recipient.agent_id
+        self.recipient.eq(&other.recipient)
         && self.type_agent == other.type_agent
         && self.priority == other.priority
     }

@@ -7,7 +7,7 @@ pub trait Agent {
 
     fn is_dead(&self) -> bool;
 
-    fn handle_message<M>(&mut self, packet: Packet<M>);
+    fn handle_message<M: Clone>(&mut self, packet: &Packet<M>);
 
-    fn update<M>(&mut self) -> Option<Vec<Packet<M>>>;
+    fn update<M: Clone>(&mut self) -> Option<Vec<Packet<M>>>;
 }
