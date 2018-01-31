@@ -1,17 +1,18 @@
 use slab::Slab;
-use shred::{DispatcherBuilder, Resource, Resources, System};
+use shred::System;
 
 use agent::Agent;
-use packet::Packet;
+use packet::{Packet};
 
 use std::sync::mpsc::{channel, Sender, Receiver};
+use std::collections::HashMap;
 
 pub struct AgentSystem<A: Agent, M: Eq> {
     pub id: u8, 
     pub agents: Slab<A>,
     pub inboxes: Vec<Packet<M>>,
     pub chan: (Sender<Packet<M>>, Receiver<Packet<M>>),
-    pub views: Vec<(u8, Sender<Packet<M>>)>,
+    pub views: HashMap<u8, Sender<Packet<M>>>,
 }
 
 impl <A: Agent, M: Eq>AgentSystem<A, M> {
@@ -20,7 +21,7 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
             id,
             agents: Slab::new(),
             inboxes: Vec::new(),
-            views: Vec::new(),
+            views: HashMap::new(),
             chan: channel(),
         }
     }
@@ -31,9 +32,36 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
                 self.inboxes.append(&mut messages);
             }
         }
+        self.inboxes.sort();
     }
 
     pub fn process_messages(&mut self) {
+        for packet in self.inboxes.drain(..) {
+            if packet.recipient.system_id == self.id {
+                let agent = self.agents.get_mut(packet.recipient.agent_id);
+
+                if let Some(agent) = agent {
+                    agent.handle_message(packet);
+                }
+                else {
+                    eprintln!("The system {} doesn't contain the agent id {}", self.id, packet.recipient.agent_id);
+                }
+            }
+            else {
+                let system_view = self.views.get(&packet.recipient.system_id);
+
+                if let Some(sender) = system_view {
+                    //FIXME: Manage the error just by a print.
+                    sender.send(packet).expect("Should send the message to the other system");
+                }
+                else {
+                    eprintln!("The system {} is not register in the system {}", packet.recipient.system_id, self.id);
+                }
+            }
+        }
+    }
+
+    pub fn get_message_from_other_system(&mut self) {
         for packet in self.chan.1.try_iter() {
             self.inboxes.push(packet);
         }
@@ -45,7 +73,7 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
     }
 
     pub fn add_remote_system(&mut self, id: u8, sender: Sender<Packet<M>>) {
-        self.views.push((id, sender));
+        self.views.insert(id, sender);
     }
 
     pub fn get_nb_message_inbox(&self) -> usize {
@@ -65,8 +93,9 @@ impl<'a, A: Agent, M: Eq> System<'a> for AgentSystem<A, M> {
     type SystemData = ();
 
     fn run(&mut self, _: Self::SystemData) {
-        self.process_agent();
+        self.get_message_from_other_system();
         self.process_messages();
+        self.process_agent();
     }
 }
 
@@ -74,6 +103,7 @@ impl<'a, A: Agent, M: Eq> System<'a> for AgentSystem<A, M> {
 mod test_sytem {
 
     use super::*;
+    use shred::{DispatcherBuilder, Resource, Resources, System};
 
     struct Car { 
         id: usize,
