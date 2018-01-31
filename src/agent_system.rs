@@ -2,27 +2,42 @@ use slab::Slab;
 use shred::System;
 
 use agent::Agent;
+use agent_factory::AgentFactory;
 use packet::{Packet};
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::collections::HashMap;
 
 pub struct AgentSystem<A: Agent, M: Eq> {
-    pub id: u8, 
-    pub agents: Slab<A>,
-    pub inboxes: Vec<Packet<M>>,
-    pub chan: (Sender<Packet<M>>, Receiver<Packet<M>>),
-    pub views: HashMap<u8, Sender<Packet<M>>>,
+    id: u8, 
+    agents: Slab<A>,
+    inboxes: Vec<Packet<M>>,
+    chan: (Sender<Packet<M>>, Receiver<Packet<M>>),
+    views: HashMap<u8, Sender<Packet<M>>>,
+    factory: Box<AgentFactory<A>>,
 }
 
 impl <A: Agent, M: Eq>AgentSystem<A, M> {
-    pub fn new(id: u8) -> Self {
+    pub fn new(id: u8, factory: Box<AgentFactory<A>>) -> Self {
         AgentSystem {
             id,
             agents: Slab::new(),
             inboxes: Vec::new(),
             views: HashMap::new(),
             chan: channel(),
+            factory,
+        }
+    }
+
+    pub fn spawn_agent(&mut self) {
+        let entry_agent = self.agents.vacant_entry();
+        let agent = self.factory.create(entry_agent.key());
+        entry_agent.insert(agent);
+    }
+
+    pub fn spawn_swarm(&mut self, count: usize) {
+        for _ in 0..count {
+            self.spawn_agent();
         }
     }
 
