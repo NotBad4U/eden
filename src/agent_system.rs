@@ -3,12 +3,12 @@ use shred::System;
 
 use agent::Agent;
 use agent_factory::AgentFactory;
-use packet::{Packet};
+use packet::{Packet, Recipient};
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::collections::HashMap;
 
-pub struct AgentSystem<A: Agent, M: Eq> {
+pub struct AgentSystem<A: Agent, M: Eq + Clone> {
     id: u8, 
     agents: Slab<A>,
     inboxes: Vec<Packet<M>>,
@@ -17,7 +17,7 @@ pub struct AgentSystem<A: Agent, M: Eq> {
     factory: Box<AgentFactory<A>>,
 }
 
-impl <A: Agent, M: Eq>AgentSystem<A, M> {
+impl <A: Agent, M: Eq + Clone>AgentSystem<A, M> {
     pub fn new(id: u8, factory: Box<AgentFactory<A>>) -> Self {
         AgentSystem {
             id,
@@ -52,25 +52,39 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
 
     pub fn process_messages(&mut self) {
         for packet in self.inboxes.drain(..) {
-            if packet.recipient.system_id == self.id {
-                let agent = self.agents.get_mut(packet.recipient.agent_id);
+            if packet.system_id == self.id {
+                // Agent(s) on the same system.
+                match packet.recipient {
+                    Recipient::Agent{ agent_id } => {
+                        let agent = self.agents.get_mut(agent_id);
 
-                if let Some(agent) = agent {
-                    agent.handle_message(packet);
-                }
-                else {
-                    eprintln!("The system {} doesn't contain the agent id {}", self.id, packet.recipient.agent_id);
+                        if let Some(agent) = agent {
+                            agent.handle_message(&packet);
+                        }
+                    },
+                    Recipient::Broadcast => {
+                        for (_, agent) in self.agents.iter_mut() {
+                            agent.handle_message(&packet);
+                        }
+                    },
                 }
             }
             else {
-                let system_view = self.views.get(&packet.recipient.system_id);
+                // Agent(s) on another system.
+                match packet.recipient {
+                    Recipient::Broadcast => {
+                        for (_, sender) in self.views.iter() {
+                            sender.send(packet.clone()).expect("send packet to other system");
+                        }
+                    },
+                    _ => {
+                        let system_view = self.views.get(&packet.system_id);
 
-                if let Some(sender) = system_view {
-                    //FIXME: Manage the error just by a print.
-                    sender.send(packet).expect("Should send the message to the other system");
-                }
-                else {
-                    eprintln!("The system {} is not register in the system {}", packet.recipient.system_id, self.id);
+                        if let Some(sender) = system_view {
+                            //FIXME: Manage the error just by a print.
+                            sender.send(packet).expect("send packet to other system");
+                        }
+                    }
                 }
             }
         }
@@ -104,7 +118,7 @@ impl <A: Agent, M: Eq>AgentSystem<A, M> {
     }
 }
 
-impl<'a, A: Agent, M: Eq> System<'a> for AgentSystem<A, M> {
+impl<'a, A: Agent, M: Eq + Clone> System<'a> for AgentSystem<A, M> {
     type SystemData = ();
 
     fn run(&mut self, _: Self::SystemData) {
