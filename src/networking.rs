@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use std::net::{SocketAddr, TcpStream, TcpListener};
 use std::io::{Read, Write, ErrorKind, BufReader};
 
