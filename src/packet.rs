@@ -10,7 +10,7 @@ pub enum Recipient {
 pub struct Packet<M: Clone> {
     pub system_id: u8,
     pub priority: u8,
-    pub type_agent: u8,
+    pub sender_id: usize,
     pub recipient: Recipient,
     pub message: M,
 }
@@ -30,7 +30,7 @@ impl <M: Eq + Clone>PartialOrd for Packet<M> {
 impl <M: Eq + Clone>PartialEq for Packet<M> {
     fn eq(&self, other: &Packet<M>) -> bool {
         self.recipient.eq(&other.recipient)
-        && self.type_agent == other.type_agent
+        && self.sender_id == other.sender_id
         && self.priority == other.priority
     }
 }
