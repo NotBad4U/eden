@@ -7,3 +7,4 @@ pub mod agent_factory;
 pub mod packet;
 pub mod monitoring;
 pub mod networking;
+pub mod inbox;
