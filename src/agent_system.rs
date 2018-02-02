@@ -4,16 +4,42 @@ use shred::System;
 use agent::Agent;
 use agent_factory::AgentFactory;
 use packet::{Packet, Recipient};
+use networking::Session;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::collections::HashMap;
+use std::net::SocketAddr;
+
+pub enum RemoteSystem<M: Clone> {
+    Local {
+        id: u8,
+        channel_sender: Sender<Packet<M>>
+    },
+    Remote {
+        id: u8,
+        session: Session,
+    }
+}
+
+impl <M: Clone>RemoteSystem<M> {
+    fn dispatch(&mut self, packet: Packet<M>) {
+        match self {
+            &mut RemoteSystem::Local{ref id, ref channel_sender} => {
+                channel_sender.send(packet.clone()).expect("send packet to other system");
+            },
+            &mut RemoteSystem::Remote{ref id, ref mut session} => {
+                session.try_send();
+            },
+        }
+    }
+}
 
 pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
     id: u8, 
     agents: Slab<A>,
     inboxes: Vec<Packet<M>>,
     chan: (Sender<Packet<M>>, Receiver<Packet<M>>),
-    views: HashMap<u8, Sender<Packet<M>>>,
+    views: HashMap<u8, RemoteSystem<M>>,
     factory: Box<AgentFactory<A> + Send>,
 }
 
@@ -75,16 +101,15 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
                 // Agent(s) on another system.
                 match packet.recipient {
                     Recipient::Broadcast => {
-                        for (_, sender) in self.views.iter() {
-                            sender.send(packet.clone()).expect("send packet to other system");
+                        for (_, view) in self.views.iter_mut() {
+                            view.dispatch(packet.clone());
                         }
                     },
                     _ => {
-                        let system_view = self.views.get(&packet.system_id);
+                        let system_view = self.views.get_mut(&packet.system_id);
 
-                        if let Some(sender) = system_view {
-                            //FIXME: Manage the error just by a print.
-                            sender.send(packet).expect("send packet to other system");
+                        if let Some(view) = system_view {
+                            view.dispatch(packet);
                         }
                     }
                 }
@@ -103,8 +128,21 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
         self.chan.0.clone()
     }
 
-    pub fn add_remote_system(&mut self, id: u8, sender: Sender<Packet<M>>) {
-        self.views.insert(id, sender);
+    pub fn add_local_system(&mut self, id: u8, channel_sender: Sender<Packet<M>>) {
+        let local_system = RemoteSystem::Local {
+            id,
+            channel_sender,
+        };
+        self.views.insert(id, local_system);
+    }
+
+    pub fn add_remote_system(&mut self, id: u8, addr: SocketAddr) {
+        let session = Session::new(addr);
+        let remote_system = RemoteSystem::Remote {
+            id,
+            session,
+        };
+        self.views.insert(id, remote_system);
     }
 
     pub fn get_nb_message_inbox(&self) -> usize {
@@ -387,8 +425,8 @@ mod test_sytem {
         system.spawn_agent();
         system2.spawn_agent();
 
-        system.add_remote_system(id_system2, sender2);
-        system2.add_remote_system(id_system, sender);
+        system.add_local_system(id_system2, sender2);
+        system2.add_local_system(id_system, sender);
 
         let mut resources = Resources::new();
         let mut dispatcher = DispatcherBuilder::new()
