@@ -6,6 +6,14 @@ pub enum Recipient {
     Broadcast,
 }
 
+/// Packets send from the network take this layout.
+///```
+/// +---------------------+--------------+----------------+---------+
+/// | 1bit                | 1bit         | 8bits          | unknow  |
+/// +---------------------+--------------+----------------+---------+
+/// | broadcast/system id | agents/agent | agent id/empty | payload |
+/// +---------------------+--------------+----------------+---------+
+///```
 #[derive(Clone, Eq)]
 pub struct Packet<M: Clone> {
     pub system_id: u8,
