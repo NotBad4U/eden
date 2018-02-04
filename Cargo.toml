@@ -5,4 +5,5 @@ authors = ["Alessio Coltellacci <lightplay8@gmail.com>"]
 
 [dependencies]
 slab = "0.4"
-shred = "0.5.2"
+shred = "0.5"
+zmq = "0.8"
