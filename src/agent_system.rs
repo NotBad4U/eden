@@ -1,59 +1,49 @@
 use slab::Slab;
 use shred::System;
+use zmq::Context as ZmqContext;
 
 use agent::Agent;
 use agent_factory::AgentFactory;
 use packet::{Packet, Recipient};
-use networking::Session;
+use dispatcher::Dispatcher;
+use message_collector::Collector;
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
-pub enum RemoteSystem<M: Clone> {
-    Local {
-        id: u8,
-        channel_sender: Sender<Packet<M>>
-    },
-    Remote {
-        id: u8,
-        session: Session,
-    }
-}
-
-impl <M: Clone>RemoteSystem<M> {
-    fn dispatch(&mut self, packet: Packet<M>) {
-        match self {
-            &mut RemoteSystem::Local{ref id, ref channel_sender} => {
-                channel_sender.send(packet.clone()).expect("send packet to other system");
-            },
-            &mut RemoteSystem::Remote{ref id, ref mut session} => {
-                session.try_send();
-            },
-        }
-    }
-}
+use std::rc::Rc;
 
 pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
-    id: u8, 
+    id: u8,
     agents: Slab<A>,
     inboxes: Vec<Packet<M>>,
-    chan: (Sender<Packet<M>>, Receiver<Packet<M>>),
-    views: HashMap<u8, RemoteSystem<M>>,
+    sender: Sender<Packet<M>>,
     factory: Box<AgentFactory<A> + Send>,
+    zmq_ctx: Rc<ZmqContext>,
+    dispatcher: Dispatcher<M>,
+    collector: Collector<M>,
 }
 
 impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
-    pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>) -> Self {
+
+    pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
+        let zmq_ctx = Rc::new(ZmqContext::new());
+        let (sender, receiver) = channel();
+        let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
+        let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver);
+
         AgentSystem {
             id,
             agents: Slab::new(),
             inboxes: Vec::new(),
-            views: HashMap::new(),
-            chan: channel(),
+            sender,
             factory,
+            zmq_ctx,
+            dispatcher,
+            collector,
         }
     }
+
 
     pub fn spawn_agent(&mut self) {
         let entry_agent = self.agents.vacant_entry();
@@ -77,72 +67,26 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
     }
 
     pub fn process_messages(&mut self) {
-        for packet in self.inboxes.drain(..) {
-            if packet.system_id == self.id {
-                // Agent(s) on the same system.
-                match packet.recipient {
-                    Recipient::Agent{ agent_id } => {
-                        let agent = self.agents.get_mut(agent_id);
-
-                        if let Some(agent) = agent {
-                            agent.handle_message(&packet);
-                        }
-                    },
-                    Recipient::Broadcast => {
-                        for (_, agent) in self.agents.iter_mut() {
-                            if agent.id() != packet.sender_id {
-                                agent.handle_message(&packet);
-                            }
-                        }
-                    },
-                }
-            }
-            else {
-                // Agent(s) on another system.
-                match packet.recipient {
-                    Recipient::Broadcast => {
-                        for (_, view) in self.views.iter_mut() {
-                            view.dispatch(packet.clone());
-                        }
-                    },
-                    _ => {
-                        let system_view = self.views.get_mut(&packet.system_id);
-
-                        if let Some(view) = system_view {
-                            view.dispatch(packet);
-                        }
-                    }
-                }
-            }
-        }
+        let packets = self.inboxes.drain(..);
+        self.dispatcher.dispatch_packets(packets);
     }
 
-    pub fn get_message_from_other_system(&mut self) {
-        for packet in self.chan.1.try_iter() {
-            self.inboxes.push(packet);
+    pub fn collect_messages_from_other_systems(&mut self) {
+        if let Some(mut packets) = self.collector.collect_packets() {
+            self.inboxes.append(&mut packets);
         }
-        self.inboxes.sort();
     }
 
     pub fn get_sender(&self) -> Sender<Packet<M>> {
-        self.chan.0.clone()
+        self.sender.clone()
     }
 
-    pub fn add_local_system(&mut self, id: u8, channel_sender: Sender<Packet<M>>) {
-        let local_system = RemoteSystem::Local {
-            id,
-            channel_sender,
-        };
-        self.views.insert(id, local_system);
+    pub fn add_local_system(&mut self, system_id: u8, channel_sender: Sender<Packet<M>>) {
+        self.dispatcher.add_local_sender(system_id, channel_sender);
     }
 
-    pub fn add_remote_system(&mut self, id: u8, addr: SocketAddr) {
-        let session = Session::new(addr);
-        let remote_system = RemoteSystem::Remote {
-            id,
-            session,
-        };
-        self.views.insert(id, remote_system);
+    pub fn add_remote_system(&mut self, remotes_system: (u8, SocketAddr)) {
+        self.collector.add_remote_collector(remotes_system.1);
     }
 
     pub fn get_nb_message_inbox(&self) -> usize {
@@ -163,7 +107,7 @@ impl<'a, A: Agent<P=M>, M: Eq + Clone> System<'a> for AgentSystem<A, M> {
 
     fn run(&mut self, _: Self::SystemData) {
         self.process_agent();
-        self.get_message_from_other_system();
+        self.collect_messages_from_other_systems();
         self.process_messages();
     }
 }
