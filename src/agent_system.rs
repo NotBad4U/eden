@@ -26,6 +26,8 @@ pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
 impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
 
     pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
+        trace!("Creating the system {}", id);
+
         let zmq_ctx = Arc::new(ZmqContext::new());
         let (sender, receiver) = channel();
         let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
@@ -45,12 +47,14 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
 
 
     pub fn spawn_agent(&mut self) {
+        trace!("Creating an agent on system {}", self.id());
         let entry_agent = self.agents.vacant_entry();
         let agent = self.factory.create(entry_agent.key());
         entry_agent.insert(agent);
     }
 
     pub fn spawn_swarm(&mut self, count: usize) {
+        trace!("Creating {} agent on system {}", count, self.id());
         for _ in 0..count {
             self.spawn_agent();
         }
@@ -81,10 +85,12 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
     }
 
     pub fn add_local_observer_system(&mut self, system_id: u8, channel_sender: Sender<Packet<M>>) {
+        trace!("Adding the local observer system {}", system_id);
         self.dispatcher.add_local_sender(system_id, channel_sender);
     }
 
     pub fn add_remote_observer_system(&mut self, remotes_system: (u8, SocketAddr)) {
+        trace!("Adding the remote observer system {} - {}", remotes_system.0, remotes_system.1);
         self.collector.add_remote_collector(remotes_system.1);
     }
 

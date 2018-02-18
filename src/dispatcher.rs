@@ -54,11 +54,13 @@ impl <M: Clone>Dispatcher<M> {
         match packet.recipient {
             Recipient::Agent{ agent_id } => {
                 if let Some(sender) = self.local_senders.get(&packet.system_id) {
+                    debug!("send a packet to agent {} in the local system {}", agent_id, packet.system_id);
                     sender.send(packet);
                 }
             },
             Recipient::Broadcast => {
                 for (_, sender) in self.local_senders.iter() {
+                    debug!("broadcast a packet to all local observers systems");
                     sender.send(packet.clone());
                 }
             },
@@ -83,6 +85,7 @@ fn create_publisher_chan_for_broadcast(addr: SocketAddr) -> Socket {
     let context = Context::new();
     let zmq_publisher = context.socket(PUB).unwrap();
     zmq_publisher.bind(&format!("tcp://{}", addr)).expect("failed binding publisher");
+    info!("Remote publisher is ready to send message on {}", addr);
 
     zmq_publisher
 }

@@ -42,6 +42,7 @@ impl <M: Clone>Collector<M> {
         zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENT_FILTER).as_bytes());
         zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENTS_FILTER).as_bytes());
 
+        info!("Listening the remote system {}", addr);
         self.remotes_collector.push(zmq_subscriber);
     }
 
@@ -71,6 +72,7 @@ impl <M: Clone>Collector<M> {
         for (index_collector, socket) in sockets_to_poll.iter().enumerate() {
             if socket.is_readable() {
                 if self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
+                    trace!("Receive a packet from {}", index_collector);
                     //TODO: add packet to packets buffer but first find a way to deser to <M>
                 }
             }
@@ -81,6 +83,7 @@ impl <M: Clone>Collector<M> {
 
     fn collect_local_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
         for packet in self.local_collector.try_iter() {
+            trace!("Receive a packet from local system {}", packet.sender_id);
             packets.push(packet);
         }
 
