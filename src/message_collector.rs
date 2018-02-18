@@ -33,17 +33,24 @@ impl <M: Clone>Collector<M> {
     }
 
     pub fn add_remote_collector(&mut self, addr: SocketAddr) {
-        //TODO: Manage errors
-        let zmq_subscriber = self.zmq_ctx.socket(SUB).unwrap();
-        zmq_subscriber.connect(&format!("tcp://{}", addr));
+        if let Ok(zmq_subscriber) = self.zmq_ctx.socket(SUB) {
+            if let Ok(_) = zmq_subscriber.connect(&format!("tcp://{}", addr)) {
+                zmq_subscriber.set_subscribe(format!("{}", self.system_id).as_bytes())
+                    .and_then(|_| zmq_subscriber.set_subscribe(BROADCAST_FILTER))
+                    .and_then(|_| {
+                        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENT_FILTER).as_bytes())
+                    })
+                    .and_then(|_| {
+                        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENTS_FILTER).as_bytes())
+                    })
+                    .unwrap_or_else(|_| {
+                        error!("Can't set message filters on {}", addr);
+                    });
 
-        zmq_subscriber.set_subscribe(format!("{}", self.system_id).as_bytes());
-        zmq_subscriber.set_subscribe(BROADCAST_FILTER);
-        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENT_FILTER).as_bytes());
-        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENTS_FILTER).as_bytes());
-
-        info!("Listening the remote system {}", addr);
-        self.remotes_collector.push(zmq_subscriber);
+                self.remotes_collector.push(zmq_subscriber);
+                info!("Listening the remote system {}", addr);
+            };
+        }
     }
 
     pub fn collect_packets(&self) -> Option<Vec<Packet<M>>> {
