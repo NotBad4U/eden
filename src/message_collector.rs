@@ -4,7 +4,7 @@ use packet::Packet;
 
 use std::sync::mpsc::Receiver;
 use std::net::SocketAddr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 const BROADCAST_FILTER: &'static [u8] = b"BROADCAST";
 const AGENT_FILTER: &'static str = "AGENT";
@@ -13,7 +13,7 @@ const NONBLOCKING_POLL: i64 = 0;
 
 pub struct Collector<M: Clone> {
     system_id: u8,
-    zmq_ctx: Rc<Context>,
+    zmq_ctx: Arc<Context>,
     local_collector: Receiver<Packet<M>>,
     remotes_collector: Vec<Socket>,
 }
@@ -21,7 +21,7 @@ pub struct Collector<M: Clone> {
 impl <M: Clone>Collector<M> {
 
     pub fn new(system_id: u8,
-        zmq_ctx: Rc<Context>,
+        zmq_ctx: Arc<Context>,
         local_collector: Receiver<Packet<M>>,
     ) -> Self {
         Collector {

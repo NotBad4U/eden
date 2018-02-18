@@ -5,7 +5,7 @@ use packet::{Packet, Recipient};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use std::net::SocketAddr;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::vec::Drain;
 
 const NO_FLAGS: i32 = 0;
@@ -13,7 +13,7 @@ const BROADCAST_FILTER: &'static str = "BROADCAST";
 
 pub struct Dispatcher<M: Clone> {
     system_id: u8,
-    zmq_ctx: Rc<Context>,
+    zmq_ctx: Arc<Context>,
     local_senders: HashMap<u8, Sender<Packet<M>>>,
     broadcast_publisher: Socket,
 }
@@ -26,7 +26,7 @@ macro_rules! is_a_local_sytem {
 
 impl <M: Clone>Dispatcher<M> {
 
-    pub fn new(system_id: u8, zmq_ctx: Rc<Context>, addr: SocketAddr) -> Self {
+    pub fn new(system_id: u8, zmq_ctx: Arc<Context>, addr: SocketAddr) -> Self {
         Dispatcher {
             system_id,
             zmq_ctx,

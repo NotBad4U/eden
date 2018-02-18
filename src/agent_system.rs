@@ -8,10 +8,9 @@ use packet::{Packet, Recipient};
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::mpsc::{channel, Sender};
 use std::net::SocketAddr;
-use std::rc::Rc;
 
 pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
     id: u8,
@@ -19,7 +18,7 @@ pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
     inboxes: Vec<Packet<M>>,
     sender: Sender<Packet<M>>,
     factory: Box<AgentFactory<A> + Send>,
-    zmq_ctx: Rc<ZmqContext>,
+    zmq_ctx: Arc<ZmqContext>,
     dispatcher: Dispatcher<M>,
     collector: Collector<M>,
 }
@@ -27,7 +26,7 @@ pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
 impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
 
     pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
-        let zmq_ctx = Rc::new(ZmqContext::new());
+        let zmq_ctx = Arc::new(ZmqContext::new());
         let (sender, receiver) = channel();
         let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
         let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver);
@@ -117,6 +116,8 @@ mod test_sytem {
 
     use super::*;
     use shred::{DispatcherBuilder, Resources};
+    use packet::Recipient;
+    use std::net::ToSocketAddrs;
 
     struct Person {
         id: usize,
@@ -155,7 +156,8 @@ mod test_sytem {
     #[test]
     fn it_should_spawn_an_agent() {
         let mut pers_sys: AgentSystem<Person, Protocol>;
-        pers_sys = AgentSystem::new(0, Box::new(PersonFactory));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        pers_sys = AgentSystem::new(0, Box::new(PersonFactory), addr);
 
         pers_sys.spawn_agent();
         pers_sys.spawn_agent();
@@ -167,7 +169,9 @@ mod test_sytem {
     fn it_should_spawn_a_swarm_of_agents() {
         let nb_agent_to_spawn = 10;
         let mut pers_sys: AgentSystem<Person, Protocol>;
-        pers_sys = AgentSystem::new(0, Box::new(PersonFactory));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+
+        pers_sys = AgentSystem::new(0, Box::new(PersonFactory), addr);
 
         pers_sys.spawn_swarm(nb_agent_to_spawn);
 
@@ -230,7 +234,9 @@ mod test_sytem {
     #[test]
     fn it_should_dispatch_message_between_same_agent() {
         let mut system: AgentSystem<AgentTestMsg, ProtocolGreeting>;
-        system = AgentSystem::new(0, Box::new(AgentTestMsgFactory));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+
+        system = AgentSystem::new(0, Box::new(AgentTestMsgFactory), addr);
         system.spawn_swarm(2);
 
         let mut resources = Resources::new();
@@ -289,7 +295,9 @@ mod test_sytem {
     #[test]
     fn it_should_broadcast_message_between_same_agent() {
         let mut system: AgentSystem<AgentTestMsgBroadcast, ProtocolGreeting>;
-        system = AgentSystem::new(0, Box::new(GentTestMsgBroadcastFactory));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+
+        system = AgentSystem::new(0, Box::new(GentTestMsgBroadcastFactory), addr);
         system.spawn_swarm(10);
 
         let mut resources = Resources::new();
@@ -359,10 +367,12 @@ mod test_sytem {
         let mut system2: AgentSystem<AgentTestMsgBetweenSystem, ProtocolPos>;
         let id_system = 0;
         let id_system2 = 1;
+        let addr_system = SocketAddr::from(([127, 0, 0, 1], 0));
+        let addr_system2 = SocketAddr::from(([127, 0, 0, 1], 0));
 
 
-        system = AgentSystem::new(id_system, Box::new(AgentTestMsgBetweenSystemFactory(id_system2)));
-        system2 = AgentSystem::new(id_system2, Box::new(AgentTestMsgBetweenSystemFactory(id_system)));
+        system = AgentSystem::new(id_system, Box::new(AgentTestMsgBetweenSystemFactory(id_system2)), addr_system);
+        system2 = AgentSystem::new(id_system2, Box::new(AgentTestMsgBetweenSystemFactory(id_system)), addr_system2);
         let sender = system.get_sender();
         let sender2 = system.get_sender();
 
