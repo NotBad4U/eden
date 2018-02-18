@@ -10,3 +10,4 @@ pub mod monitoring;
 pub mod inbox;
 pub mod message_collector;
 pub mod dispatcher;
+pub mod protocol;
