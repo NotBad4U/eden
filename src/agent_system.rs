@@ -4,7 +4,7 @@ use zmq::Context as ZmqContext;
 
 use agent::Agent;
 use agent_factory::AgentFactory;
-use packet::{Packet, Recipient};
+use packet::Packet;
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
