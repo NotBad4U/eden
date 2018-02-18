@@ -41,7 +41,7 @@ impl <M: Clone>Dispatcher<M> {
 
     pub fn dispatch_packets(&self, packets: Drain<Packet<M>>) {
         for p in packets {
-            if is_a_local_sytem!(p.system_id, self.system_id) {
+            if self.local_senders.contains_key(&p.system_id) {
                 self.forward_message_to_local_sytem(p);
             }
             else /* remote system */ {
