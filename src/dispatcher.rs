@@ -70,9 +70,11 @@ impl <M: Clone>Dispatcher<M> {
     fn forward_message_to_remote_sytem(&self, packet: Packet<M>) {
         let key = match packet.recipient {
             Recipient::Agent{ agent_id } => {
+                debug!("send packet to agent {} in the remote system {}", agent_id, packet.system_id);
                 format!("AGENT {} {}", self.system_id, agent_id)
             },
             Recipient::Broadcast => {
+                debug!("broadcast a packet to all remotes observers systems");
                 format!("{}", BROADCAST_FILTER)
             },
         };
