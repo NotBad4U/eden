@@ -80,11 +80,11 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
         self.sender.clone()
     }
 
-    pub fn add_local_system(&mut self, system_id: u8, channel_sender: Sender<Packet<M>>) {
+    pub fn add_local_observer_system(&mut self, system_id: u8, channel_sender: Sender<Packet<M>>) {
         self.dispatcher.add_local_sender(system_id, channel_sender);
     }
 
-    pub fn add_remote_system(&mut self, remotes_system: (u8, SocketAddr)) {
+    pub fn add_remote_observer_system(&mut self, remotes_system: (u8, SocketAddr)) {
         self.collector.add_remote_collector(remotes_system.1);
     }
 
@@ -379,8 +379,8 @@ mod test_sytem {
         system.spawn_agent();
         system2.spawn_agent();
 
-        system.add_local_system(id_system2, sender2);
-        system2.add_local_system(id_system, sender);
+        system.add_local_observer_system(id_system2, sender2);
+        system2.add_local_observer_system(id_system, sender);
 
         let mut resources = Resources::new();
         let mut dispatcher = DispatcherBuilder::new()
