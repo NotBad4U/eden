@@ -1,7 +1,8 @@
 use packet::Packet;
+use packet::Payload;
 
 pub trait Agent {
-    type P: Clone;
+    type P: Payload;
 
     fn id(&self) -> usize;
 

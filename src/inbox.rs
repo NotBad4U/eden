@@ -5,13 +5,13 @@
 use slab::Slab;
 
 use agent::Agent;
-use packet::{Packet, Recipient};
+use packet::{Packet, Recipient, Payload};
 
-pub struct Inbox<M: Eq + Clone> {
+pub struct Inbox<M: Payload> {
     inboxes: Vec<Packet<M>>,
 }
 
-impl <M: Eq + Clone>Inbox<M> {
+impl <M: Payload>Inbox<M> {
 
     pub fn new() -> Self {
         Inbox {

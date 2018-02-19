@@ -4,7 +4,7 @@ use zmq::Context as ZmqContext;
 
 use agent::Agent;
 use agent_factory::AgentFactory;
-use packet::Packet;
+use packet::{Packet, Payload};
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender};
 use std::net::SocketAddr;
 
-pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
+pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
     id: u8,
     agents: Slab<A>,
     inboxes: Vec<Packet<M>>,
@@ -23,7 +23,7 @@ pub struct AgentSystem<A: Agent<P=M>, M: Eq + Clone> {
     collector: Collector<M>,
 }
 
-impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
+impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
 
     pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
         trace!("Creating the system {}", id);
@@ -107,7 +107,7 @@ impl <A: Agent<P=M>, M: Eq + Clone>AgentSystem<A, M> {
     }
 }
 
-impl<'a, A: Agent<P=M>, M: Eq + Clone> System<'a> for AgentSystem<A, M> {
+impl<'a, A: Agent<P=M>, M: Payload> System<'a> for AgentSystem<A, M> {
     type SystemData = ();
 
     fn run(&mut self, _: Self::SystemData) {
@@ -130,7 +130,15 @@ mod test_sytem {
     }
 
     #[derive(Clone, Eq, PartialEq)]
-    enum Protocol{}
+    enum Protocol{
+        Foo,
+    }
+
+    impl Payload for Protocol {
+        fn serialize(&self, bytes: &[u8]) -> Self { Protocol::Foo }
+
+        fn deserialize(&self) -> &str { "" }
+    }
 
     impl Agent for Person {
         type P = Protocol;
@@ -192,6 +200,12 @@ mod test_sytem {
     #[derive(Clone, Eq, PartialEq)]
     enum ProtocolGreeting {
         Greeting(usize),
+    }
+
+    impl Payload for ProtocolGreeting {
+        fn serialize(&self, bytes: &[u8]) -> Self { ProtocolGreeting::Greeting(0) }
+
+        fn deserialize(&self) -> &str { "" }
     }
 
     impl Agent for AgentTestMsg {
@@ -323,6 +337,12 @@ mod test_sytem {
     #[derive(Clone, Eq, PartialEq)]
     enum ProtocolPos {
         Position(u8, u8),
+    }
+
+    impl Payload for ProtocolPos {
+        fn serialize(&self, bytes: &[u8]) -> Self { ProtocolPos::Position(0, 0) }
+
+        fn deserialize(&self) -> &str { "" }
     }
 
     impl Agent for AgentTestMsgBetweenSystem {

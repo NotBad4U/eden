@@ -1,6 +1,6 @@
 use zmq::{Socket, Context, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
 
-use packet::Packet;
+use packet::{Packet, Payload};
 
 use std::sync::mpsc::Receiver;
 use std::net::SocketAddr;
@@ -11,14 +11,14 @@ const AGENT_FILTER: &'static str = "AGENT";
 const AGENTS_FILTER: &'static str = "AGENTS";
 const NONBLOCKING_POLL: i64 = 0;
 
-pub struct Collector<M: Clone> {
+pub struct Collector<M: Payload> {
     system_id: u8,
     zmq_ctx: Arc<Context>,
     local_collector: Receiver<Packet<M>>,
     remotes_collector: Vec<Socket>,
 }
 
-impl <M: Clone>Collector<M> {
+impl <M: Payload>Collector<M> {
 
     pub fn new(system_id: u8,
         zmq_ctx: Arc<Context>,
@@ -66,7 +66,7 @@ impl <M: Clone>Collector<M> {
         }
     }
 
-    fn collect_remotes_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
+    fn collect_remotes_packet(&self, packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
         let mut msg = Message::new().unwrap();
 
         let mut sockets_to_poll: Vec<PollItem> =

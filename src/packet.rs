@@ -7,11 +7,10 @@ pub enum Recipient {
 }
 
 /// Message exchange between agents from different systems
-pub trait Payload: {
-    type Message: Clone;
+pub trait Payload: Eq + Clone {
 
     /// Convert a message read from socket into a message
-    fn serialize(&self, bytes: &[u8]) -> Self::Message;
+    fn serialize(&self, bytes: &[u8]) -> Self;
 
     /// Convert the message into str to be send to other system
     fn deserialize(&self) -> &str;
@@ -27,27 +26,38 @@ pub trait Payload: {
 /// +---------------------+--------------+----------------+---------+
 ///```
 #[derive(Clone, Eq)]
-pub struct Packet<M: Clone> {
+pub struct Packet<P: Payload> {
     pub system_id: u8,
     pub priority: u8,
     pub sender_id: usize,
     pub recipient: Recipient,
-    pub message: M,
+    pub message: P,
 }
 
-impl <M: Eq + Clone>Ord for Packet<M> {
+impl <P: Payload>Packet<P> {
+
+    pub fn serialize(&self, bytes: &[u8]) {
+
+    }
+
+    pub fn deserialize(&self) -> &str {
+        ""
+    }
+}
+
+impl <M: Payload>Ord for Packet<M> {
     fn cmp(&self, other: &Packet<M>) -> Ordering {
         self.priority.cmp(&other.priority)
     }
 }
 
-impl <M: Eq + Clone>PartialOrd for Packet<M> {
+impl <M: Payload>PartialOrd for Packet<M> {
     fn partial_cmp(&self, other: &Packet<M>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl <M: Eq + Clone>PartialEq for Packet<M> {
+impl <M: Payload>PartialEq for Packet<M> {
     fn eq(&self, other: &Packet<M>) -> bool {
         self.recipient.eq(&other.recipient)
         && self.sender_id == other.sender_id

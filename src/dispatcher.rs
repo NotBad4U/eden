@@ -1,6 +1,6 @@
 use zmq::{Socket, Context, PUB};
 
-use packet::{Packet, Recipient};
+use packet::{Packet, Recipient, Payload};
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
@@ -11,20 +11,14 @@ use std::vec::Drain;
 const NO_FLAGS: i32 = 0;
 const BROADCAST_FILTER: &'static str = "BROADCAST";
 
-pub struct Dispatcher<M: Clone> {
+pub struct Dispatcher<M: Payload> {
     system_id: u8,
     zmq_ctx: Arc<Context>,
     local_senders: HashMap<u8, Sender<Packet<M>>>,
     broadcast_publisher: Socket,
 }
 
-macro_rules! is_a_local_sytem {
-    ($id: expr, $id2: expr) => {
-        $id == $id2
-    };
-}
-
-impl <M: Clone>Dispatcher<M> {
+impl <M: Payload>Dispatcher<M> {
 
     pub fn new(system_id: u8, zmq_ctx: Arc<Context>, addr: SocketAddr) -> Self {
         Dispatcher {
@@ -78,7 +72,7 @@ impl <M: Clone>Dispatcher<M> {
                 format!("{}", BROADCAST_FILTER)
             },
         };
-        self.broadcast_publisher.send(b"yolo", 0);
+        self.broadcast_publisher.send(b"yolo", NO_FLAGS).expect("");
     }
 }
 
