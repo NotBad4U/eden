@@ -8,7 +8,6 @@ pub mod agent;
 pub mod agent_system;
 pub mod agent_factory;
 pub mod packet;
-pub mod protocol;
 
 mod monitoring;
 mod message_collector;
