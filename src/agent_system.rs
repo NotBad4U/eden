@@ -12,8 +12,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender};
 use std::net::SocketAddr;
 
+pub type SystemId = u8;
+
 pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
-    id: u8,
+    id: SystemId,
     agents: Slab<A>,
     inboxes: Vec<Packet<M>>,
     sender: Sender<Packet<M>>,
@@ -25,7 +27,7 @@ pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
 
 impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
 
-    pub fn new(id: u8, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
+    pub fn new(id: SystemId, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
         trace!("Creating the system {}", id);
 
         let zmq_ctx = Arc::new(ZmqContext::new());
@@ -84,12 +86,12 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
         self.sender.clone()
     }
 
-    pub fn add_local_observer_system(&mut self, system_id: u8, channel_sender: Sender<Packet<M>>) {
+    pub fn add_local_observer_system(&mut self, system_id: SystemId, channel_sender: Sender<Packet<M>>) {
         trace!("Adding the local observer system {}", system_id);
         self.dispatcher.add_local_sender(system_id, channel_sender);
     }
 
-    pub fn add_remote_observer_system(&mut self, remotes_system: (u8, SocketAddr)) {
+    pub fn add_remote_observer_system(&mut self, remotes_system: (SystemId, SocketAddr)) {
         trace!("Adding the remote observer system {} - {}", remotes_system.0, remotes_system.1);
         self.collector.add_remote_collector(remotes_system.1);
     }
