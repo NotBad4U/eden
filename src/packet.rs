@@ -1,13 +1,11 @@
 use agent_system::SystemId;
 use agent::AgentId;
 
-use zmq::Message;
-
 use std::cmp::Ordering;
 use std::mem::transmute;
 
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Recipient {
     Agent { system_id: SystemId, agent_id: AgentId },
     Broadcast { system_id: Option<SystemId> },
@@ -17,15 +15,15 @@ pub enum Recipient {
 pub trait Payload: Eq + Clone {
 
     /// Convert a message read from socket into a message
-    fn serialize(bytes: &[u8]) -> Result<Self, &str>;
+    fn deserialize(bytes: &[u8]) -> Result<Self, &str>;
 
     /// Convert the message into str to be send to other system
-    fn deserialize(&self) -> &[u8];
+    fn serialize(&self) -> Vec<u8>;
 
 }
 
 
-#[derive(Clone, Eq)]
+#[derive(Clone, Eq, Debug)]
 pub struct Packet<P: Payload> {
     pub priority: u8,
     pub sender: (SystemId, AgentId),
@@ -42,18 +40,28 @@ macro_rules! push_usize {
     };
 }
 
+macro_rules! read_usize {
+    ($buf: expr) => {
+        unsafe {
+            let mut temp: [u8; 8] = Default::default();
+            temp.copy_from_slice($buf);
+            transmute::<[u8; 8], usize>(temp)
+        }
+    };
+}
+
 const SEND_TO_AGENT: u8 = 0;
 const BROADCAST_TO_AS_YSTEM: u8 = 1;
 const BROADCAST_TO_ALL: u8 = 2;
 
 impl <P: Payload>Packet<P> {
 
-    pub fn serialize(&self, msg: &[u8]) -> Result<Self, &str> {
+    pub fn deserialize(msg: &[u8]) -> Result<Self, &str> {
         let mut cursor = 0;
 
         let recipient = match msg[0] {
             SEND_TO_AGENT => {
-                cursor += 2;
+                cursor += 2; //FIXME: incorrect move
                 Ok(Recipient::Agent{ system_id: msg[1], agent_id: 0 })
             },
             BROADCAST_TO_AS_YSTEM => {
@@ -68,20 +76,27 @@ impl <P: Payload>Packet<P> {
         };
 
         recipient.and_then(|recipient| {
+            //TODO: Make a macro to read and move the cursor
+            let system_id = msg[cursor];
+            cursor += 1;
+            let agent_id = read_usize!(&msg[cursor..cursor+8]);
+            cursor += 8;
             let priority = msg[cursor];
-            let msg_size = 0;
-            let message: P = Payload::serialize(&msg[cursor..msg_size]).unwrap(); //FIXME: a bit hard
+            cursor += 1;
+            let msg_size = read_usize!(&msg[cursor..cursor+8]);
+            cursor += 8;
+            let message: P = Payload::deserialize(&msg[cursor..cursor+msg_size]).unwrap(); //FIXME: a bit hard
 
             Ok(Self {
                 priority,
-                sender: (0, 0),
+                sender: (system_id, agent_id),
                 recipient,
                 message,
             })
         })
     }
 
-    pub fn deserialize(& self) -> Vec<u8> {
+    pub fn serialize(& self) -> Vec<u8> {
         let mut msg: Vec<u8> = Vec::with_capacity(144);
 
         match self.recipient {
@@ -98,11 +113,13 @@ impl <P: Payload>Packet<P> {
             }
         };
 
+        msg.push(self.sender.0);
+        push_usize!(self.sender.1, msg);
         msg.push(self.priority);
 
-        let payload = self.message.deserialize();
+        let payload = self.message.serialize();
         push_usize!(payload.len(), msg);
-        msg.extend_from_slice(payload);
+        msg.extend_from_slice(&payload);
 
         msg
     }
@@ -125,5 +142,80 @@ impl <M: Payload>PartialEq for Packet<M> {
         self.recipient.eq(&other.recipient)
         && self.sender == other.sender
         && self.priority == other.priority
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct Position {
+        pos_x: u8,
+        pos_y: u8,
+    }
+
+    impl Payload for Position {
+
+        fn deserialize(bytes: &[u8]) -> Result<Self, &str> {
+            if bytes.len() == 2 {
+                Ok(Position {
+                    pos_x: bytes[0],
+                    pos_y: bytes[1],
+                })
+            }
+            else {
+                Err("serialization error")
+            }
+        }
+
+        fn serialize(&self) -> Vec<u8> {
+            [self.pos_x, self.pos_y].to_vec()
+        }
+    }
+
+    #[test]
+    fn it_should_serialize_a_packet() {
+        let packet = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Broadcast{ system_id: None },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_expected = [
+            BROADCAST_TO_ALL,                               // broadcast all code = 2
+            0x01,                                           // agent id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // system id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        assert_eq!(packet_expected , packet.serialize().as_slice());
+    }
+
+    #[test]
+    fn it_should_deserialize_a_packet() {
+        let packet_to_deserialize = [
+            BROADCAST_TO_ALL,                               // broadcast all code = 2
+            0x01,                                           // agent id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // system id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        let packet_expected = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Broadcast{ system_id: None },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_to_deserialize);
+        assert!(packet_deserialized.is_ok());
+        assert_eq!(packet_expected, packet_deserialized.unwrap());
     }
 }
