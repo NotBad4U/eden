@@ -11,12 +11,12 @@ pub enum ProtocolTaxi {
 }
 
 impl Payload for ProtocolTaxi {
-    fn serialize(&self, bytes: &[u8]) -> Self {
-        ProtocolTaxi::AskForATaxi
+    fn deserialize(bytes: &[u8]) -> Result<Self, &str> {
+        Ok(ProtocolTaxi::AskForATaxi)
     }
 
-    fn deserialize(&self) -> &str {
-        ""
+    fn serialize(&self) -> Vec<u8> {
+        vec![]
     }
 }
 

@@ -48,10 +48,9 @@ impl Agent for Person {
     fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
         Some(vec![
             Packet {
-                system_id: TAXI_SYSTEM_ID,
                 priority: 1,
-                sender_id: self.id(),
-                recipient: Recipient::Broadcast,
+                sender: (TAXI_SYSTEM_ID, self.id()),
+                recipient: Recipient::Broadcast{ system_id: None },
                 message: ProtocolTaxi::AskForATaxi,
             }
         ])
