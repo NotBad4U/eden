@@ -3,7 +3,16 @@ use agent::AgentId;
 
 use std::cmp::Ordering;
 use std::mem::transmute;
+use std::error::Error;
+use std::fmt;
 
+#[derive(Clone, Eq, Debug)]
+pub struct Packet<P: Payload> {
+    pub recipient: Recipient,
+    pub sender: (SystemId, AgentId),
+    pub priority: u8,
+    pub message: P,
+}
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Recipient {
@@ -15,20 +24,11 @@ pub enum Recipient {
 pub trait Payload: Eq + Clone {
 
     /// Convert a message read from socket into a message
-    fn deserialize(bytes: &[u8]) -> Result<Self, &str>;
+    fn deserialize(bytes: &[u8]) -> Result<Self, ()>;
 
     /// Convert the message into str to be send to other system
     fn serialize(&self) -> Vec<u8>;
 
-}
-
-
-#[derive(Clone, Eq, Debug)]
-pub struct Packet<P: Payload> {
-    pub priority: u8,
-    pub sender: (SystemId, AgentId),
-    pub recipient: Recipient,
-    pub message: P,
 }
 
 macro_rules! push_usize {
@@ -50,49 +50,100 @@ macro_rules! read_usize {
     };
 }
 
+macro_rules! read_u8_from_cursor {
+    ($cur: ident, $buf: ident) => {
+        {
+            $cur += 1;
+            $buf[$cur-1]
+        }
+    };
+}
+
+macro_rules! read_usize_from_cursor {
+    ($cur: expr, $buf: expr) => {
+        {
+            $cur += 8;
+            read_usize!(&$buf[$cur - 8..$cur])
+        }
+    };
+}
+
+#[derive(Debug)]
+pub enum PacketSerdeError {
+    PacketDeserializationErr,
+    PacketSerializeErr,
+    PayloadSerializeErr,
+    PayloadDeserializationErr,
+}
+
+impl fmt::Display for PacketSerdeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PacketSerdeError::PacketDeserializationErr => write!(f, "packet deserialization error"),
+            PacketSerdeError::PacketSerializeErr => write!(f, "packet serialization error"),
+            PacketSerdeError::PayloadSerializeErr => write!(f, "payload serialization error"),
+            PacketSerdeError::PayloadDeserializationErr => write!(f, "packet deserialization error"),
+        }
+    }
+}
+
+impl Error for PacketSerdeError {
+    fn description(&self) -> &str {
+        //TODO: Improve this error message.
+        "serde packet error"
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        None
+    }
+}
+
 const SEND_TO_AGENT: u8 = 0;
-const BROADCAST_TO_AS_YSTEM: u8 = 1;
+const BROADCAST_TO_SYSTEM: u8 = 1;
 const BROADCAST_TO_ALL: u8 = 2;
 
 impl <P: Payload>Packet<P> {
 
-    pub fn deserialize(msg: &[u8]) -> Result<Self, &str> {
+    pub fn deserialize(msg: &[u8]) -> Result<Self, PacketSerdeError> {
         let mut cursor = 0;
 
-        let recipient = match msg[0] {
+        let recipient = match read_u8_from_cursor!(cursor, msg) {
             SEND_TO_AGENT => {
-                cursor += 2; //FIXME: incorrect move
-                Ok(Recipient::Agent{ system_id: msg[1], agent_id: 0 })
+                let system_id = read_u8_from_cursor!(cursor, msg);
+                let agent_id = read_usize_from_cursor!(cursor, msg);
+                Ok(Recipient::Agent{ system_id, agent_id })
             },
-            BROADCAST_TO_AS_YSTEM => {
-                cursor += 2;
-                Ok(Recipient::Broadcast{ system_id: Some(msg[1]) })
+            BROADCAST_TO_SYSTEM => {
+                let system_id = read_u8_from_cursor!(cursor, msg);
+                Ok(Recipient::Broadcast{ system_id: Some(system_id) })
             },
             BROADCAST_TO_ALL => {
-                cursor += 1;
                 Ok(Recipient::Broadcast{ system_id: None })
             },
-            _ => Err("Error during parsing"),
+            _ => Err(PacketSerdeError::PacketDeserializationErr),
         };
 
         recipient.and_then(|recipient| {
-            //TODO: Make a macro to read and move the cursor
-            let system_id = msg[cursor];
-            cursor += 1;
-            let agent_id = read_usize!(&msg[cursor..cursor+8]);
-            cursor += 8;
-            let priority = msg[cursor];
-            cursor += 1;
-            let msg_size = read_usize!(&msg[cursor..cursor+8]);
-            cursor += 8;
-            let message: P = Payload::deserialize(&msg[cursor..cursor+msg_size]).unwrap(); //FIXME: a bit hard
+            let system_id = read_u8_from_cursor!(cursor, msg);
+            let agent_id = read_usize_from_cursor!(cursor, msg);
+            let priority = read_u8_from_cursor!(cursor, msg);
 
-            Ok(Self {
-                priority,
-                sender: (system_id, agent_id),
-                recipient,
-                message,
-            })
+            let msg_size = read_usize_from_cursor!(cursor, msg);
+            let still_to_read = msg_size + cursor;
+
+            if  still_to_read == msg.len() {
+                match Payload::deserialize(&msg[cursor..still_to_read]) {
+                    Ok(message) => Ok(Self {
+                        priority,
+                        sender: (system_id, agent_id),
+                        recipient,
+                        message,
+                    }),
+                    Err(_) => Err(PacketSerdeError::PayloadDeserializationErr),
+                }
+            } else {
+                Err(PacketSerdeError::PacketDeserializationErr)
+            }
         })
     }
 
@@ -158,7 +209,7 @@ mod test {
 
     impl Payload for Position {
 
-        fn deserialize(bytes: &[u8]) -> Result<Self, &str> {
+        fn deserialize(bytes: &[u8]) -> Result<Self, ()> {
             if bytes.len() == 2 {
                 Ok(Position {
                     pos_x: bytes[0],
@@ -166,7 +217,7 @@ mod test {
                 })
             }
             else {
-                Err("serialization error")
+                Err(())
             }
         }
 
@@ -176,7 +227,7 @@ mod test {
     }
 
     #[test]
-    fn it_should_serialize_a_packet() {
+    fn it_should_serialize_a_broadcast_packet() {
         let packet = Packet {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: None },
@@ -186,8 +237,8 @@ mod test {
 
         let packet_expected = [
             BROADCAST_TO_ALL,                               // broadcast all code = 2
-            0x01,                                           // agent id
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // system id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
@@ -197,11 +248,56 @@ mod test {
     }
 
     #[test]
-    fn it_should_deserialize_a_packet() {
+    fn it_should_serialize_a_packet_broadcast_to_a_another_system() {
+        let packet = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Broadcast{ system_id: Some(10) },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_expected = [
+            BROADCAST_TO_SYSTEM,                            // broadcast to another system
+            0x0A,                                           // recipient system id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        assert_eq!(packet_expected , packet.serialize().as_slice());
+    }
+
+    #[test]
+    fn it_should_serialize_a_packet_addressed_to_another_agent() {
+        let packet = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Agent{ system_id: 1, agent_id: 8 },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_expected = [
+            SEND_TO_AGENT,                                  // agent code
+            0x01,                                           // recipient system id
+            0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // recipient agent id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        assert_eq!(packet_expected , packet.serialize().as_slice());
+    }
+
+    #[test]
+    fn it_should_deserialize_a_broadcast_packet() {
         let packet_to_deserialize = [
-            BROADCAST_TO_ALL,                               // broadcast all code = 2
-            0x01,                                           // agent id
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // system id
+            BROADCAST_TO_ALL,                               // broadcast to all
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
@@ -217,5 +313,117 @@ mod test {
         let packet_deserialized = Packet::<Position>::deserialize(&packet_to_deserialize);
         assert!(packet_deserialized.is_ok());
         assert_eq!(packet_expected, packet_deserialized.unwrap());
+    }
+
+    #[test]
+    fn it_should_deserialize_a_broadcast_to_another_system_packet() {
+        let packet_to_deserialize = [
+            BROADCAST_TO_SYSTEM,                            // broadcast to a system
+            0x01,                                           // recipient system id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        let packet_expected = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Broadcast{ system_id: Some(1) },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_to_deserialize);
+        assert!(packet_deserialized.is_ok());
+        assert_eq!(packet_expected, packet_deserialized.unwrap());
+    }
+
+    #[test]
+    fn it_should_deserialize_packet_addressed_to_another_agent() {
+        let packet_to_deserialize = [
+            SEND_TO_AGENT,                                  // packet for an agent
+            0x01,                                           // recipient system id
+            0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // recipient agent id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
+            0x03,                                           // priority
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02, 0x01,                                     // pos_x, pos_y
+        ];
+
+        let packet_expected = Packet {
+            sender: (1, 2),
+            recipient: Recipient::Agent{ system_id: 1 , agent_id: 8 },
+            priority: 3,
+            message: Position{ pos_x: 2, pos_y: 1},
+        };
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_to_deserialize);
+        assert!(packet_deserialized.is_ok());
+        assert_eq!(packet_expected, packet_deserialized.unwrap());
+    }
+
+    #[test]
+    fn it_should_not_deserialize_packet_with_unknown_code() {
+        let packet_to_deserialize = [
+            42, // Unknown code
+        ];
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_to_deserialize);
+        assert!(packet_deserialized.is_err());
+    }
+
+    #[test]
+    fn it_should_not_deserialize_packet_when_payload_is_not_deserializable() {
+        let packet_with_incorrect_payload = [
+            SEND_TO_AGENT,                                  // packet for an agent
+            0x01,                                           // recipient system id
+            0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // recipient agent id
+            0x01,                                           // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
+            0x03,                                           // priority
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
+            0x02,                                           // pos_x, [MISSING] the pos_y
+        ];
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_with_incorrect_payload);
+        assert!(packet_deserialized.is_err());
+    }
+
+    #[test]
+    fn it_should_not_deserialize_packet_when_payload_is_to_small() {
+        let packet_with_incorrect_payload_size = [
+            SEND_TO_AGENT,                                   // packet for an agent
+            0x01,                                            // recipient system id
+            0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // recipient agent id
+            0x01,                                            // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // sender agent id
+            0x03,                                            // priority
+
+            0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // [INCORRECT] message length
+            0x02, 0x02,                                      // pos_x, the pos_y
+        ];
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_with_incorrect_payload_size);
+        assert!(packet_deserialized.is_err());
+    }
+
+    #[test]
+    fn it_should_not_deserialize_packet_when_payload_is_to_big() {
+        let packet_with_incorrect_payload_size = [
+            SEND_TO_AGENT,                                   // agent infos recipient
+            0x01,                                            // recipient system id
+            0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // recipient agent id
+            0x01,                                            // sender system id
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // sender agent id
+            0x03,                                            // priority
+
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // [INCORRECT] message length
+            0x02, 0x02,                                      // pos_x, the pos_y
+        ];
+
+        let packet_deserialized = Packet::<Position>::deserialize(&packet_with_incorrect_payload_size);
+        assert!(packet_deserialized.is_err());
     }
 }
