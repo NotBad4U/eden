@@ -11,7 +11,7 @@ pub enum ProtocolTaxi {
 }
 
 impl Payload for ProtocolTaxi {
-    fn deserialize(bytes: &[u8]) -> Result<Self, &str> {
+    fn deserialize(bytes: &[u8]) -> Result<Self, ()> {
         Ok(ProtocolTaxi::AskForATaxi)
     }
 
