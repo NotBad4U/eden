@@ -1,14 +1,11 @@
 use zmq::{Socket, Context, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
 
-use packet::{Packet, Payload};
+use packet::{Packet, Payload, BROADCAST_TO_ALL, BROADCAST_TO_SYSTEM, SEND_TO_AGENT};
 
 use std::sync::mpsc::Receiver;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-const BROADCAST_FILTER: &'static [u8] = b"BROADCAST";
-const AGENT_FILTER: &'static str = "AGENT";
-const AGENTS_FILTER: &'static str = "AGENTS";
 const NONBLOCKING_POLL: i64 = 0;
 
 pub struct Collector<M: Payload> {
@@ -36,15 +33,15 @@ impl <M: Payload>Collector<M> {
         if let Ok(zmq_subscriber) = self.zmq_ctx.socket(SUB) {
             if let Ok(_) = zmq_subscriber.connect(&format!("tcp://{}", addr)) {
                 zmq_subscriber.set_subscribe(format!("{}", self.system_id).as_bytes())
-                    .and_then(|_| zmq_subscriber.set_subscribe(BROADCAST_FILTER))
+                    .and_then(|_| zmq_subscriber.set_subscribe(&[SEND_TO_AGENT, self.system_id]))
                     .and_then(|_| {
-                        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENT_FILTER).as_bytes())
+                        zmq_subscriber.set_subscribe(&[BROADCAST_TO_SYSTEM, self.system_id])
                     })
                     .and_then(|_| {
-                        zmq_subscriber.set_subscribe(format!("{} {}", self.system_id, AGENTS_FILTER).as_bytes())
+                        zmq_subscriber.set_subscribe(&[BROADCAST_TO_ALL])
                     })
                     .unwrap_or_else(|_| {
-                        error!("Can't set message filters on {}", addr);
+                        error!("Can't set message filters for the system: {}", self.system_id);
                     });
 
                 self.remotes_collector.push(zmq_subscriber);
@@ -66,7 +63,7 @@ impl <M: Payload>Collector<M> {
         }
     }
 
-    fn collect_remotes_packet(&self, packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
+    fn collect_remotes_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
         let mut msg = Message::new().unwrap();
 
         let mut sockets_to_poll: Vec<PollItem> =
@@ -77,10 +74,14 @@ impl <M: Payload>Collector<M> {
         zmq_poll(&mut sockets_to_poll, NONBLOCKING_POLL).unwrap();
 
         for (index_collector, socket) in sockets_to_poll.iter().enumerate() {
-            if socket.is_readable() {
+            while socket.is_readable() {
                 if self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
                     trace!("Receive a packet from {}", index_collector);
-                    //TODO: add packet to packets buffer but first find a way to deser to <M>
+                    if let Ok(p) = Packet::<M>::deserialize(&msg) {
+                        packets.push(p);
+                    } else {
+                        error!("Receive a packet that can be deserialize");
+                    }
                 }
             }
         }
@@ -90,7 +91,6 @@ impl <M: Payload>Collector<M> {
 
     fn collect_local_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
         for packet in self.local_collector.try_iter() {
-            trace!("Receive a packet from local system {}", packet.sender_id);
             packets.push(packet);
         }
 
