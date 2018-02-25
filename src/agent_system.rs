@@ -137,9 +137,9 @@ mod test_sytem {
     }
 
     impl Payload for Protocol {
-        fn serialize(&self, bytes: &[u8]) -> Self { Protocol::Foo }
+        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(Protocol::Foo) }
 
-        fn deserialize(&self) -> &str { "" }
+        fn serialize(&self) -> Vec<u8> { unimplemented!() }
     }
 
     impl Agent for Person {
@@ -205,9 +205,9 @@ mod test_sytem {
     }
 
     impl Payload for ProtocolGreeting {
-        fn serialize(&self, bytes: &[u8]) -> Self { ProtocolGreeting::Greeting(0) }
+        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(ProtocolGreeting::Greeting(0)) }
 
-        fn deserialize(&self) -> &str { "" }
+        fn serialize(&self) -> Vec<u8> { vec![] }
     }
 
     impl Agent for AgentTestMsg {
@@ -228,14 +228,12 @@ mod test_sytem {
         }
 
         fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
-            let my_id = self.id();
             Some(vec! [
                 Packet {
-                    system_id: 0,
                     priority: 1,
-                    sender_id: my_id,
-                    recipient: Recipient::Agent{ agent_id: 1 - my_id },
-                    message: ProtocolGreeting::Greeting(my_id),
+                    sender: (0, self.id()),
+                    recipient: Recipient::Agent{ agent_id: 1 - self.id(), system_id: 0 },
+                    message: ProtocolGreeting::Greeting(self.id()),
                 }
             ])
         }
@@ -285,20 +283,18 @@ mod test_sytem {
         fn handle_message(&mut self, packet: &Packet<Self::P>) {
             match packet.message {
                 ProtocolGreeting::Greeting(_) => { 
-                    // println!("I'm {} and I got Hello from {}", self.id(), id_agent);
+                    println!("I'm {} and I got Hello", self.id());
                 },
             }
         }
 
         fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
-            let my_id = self.id();
             Some(vec! [
                 Packet {
-                    system_id: 0,
                     priority: 1,
-                    sender_id: my_id,
-                    recipient: Recipient::Broadcast,
-                    message: ProtocolGreeting::Greeting(my_id),
+                    sender: (0, self.id()),
+                    recipient: Recipient::Broadcast{ system_id: None },
+                    message: ProtocolGreeting::Greeting(self.id()),
                 }
             ])
         }
@@ -342,9 +338,9 @@ mod test_sytem {
     }
 
     impl Payload for ProtocolPos {
-        fn serialize(&self, bytes: &[u8]) -> Self { ProtocolPos::Position(0, 0) }
+        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(ProtocolPos::Position(0, 0)) }
 
-        fn deserialize(&self) -> &str { "" }
+        fn serialize(&self) -> Vec<u8> { unimplemented!() }
     }
 
     impl Agent for AgentTestMsgBetweenSystem {
@@ -367,10 +363,9 @@ mod test_sytem {
         fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
             Some(vec! [
                 Packet {
-                    system_id: self.id_other_sytem,
                     priority: 1,
-                    sender_id: self.id(),
-                    recipient: Recipient::Agent{ agent_id: 0 },
+                    sender: (1 - self.id_other_sytem, self.id()),
+                    recipient: Recipient::Agent{ agent_id: 0, system_id: self.id_other_sytem },
                     message: ProtocolPos::Position(self.pos.0, self.pos.1),
                 }
             ])
