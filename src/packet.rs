@@ -98,9 +98,9 @@ impl Error for PacketSerdeError {
     }
 }
 
-const SEND_TO_AGENT: u8 = 0;
-const BROADCAST_TO_SYSTEM: u8 = 1;
-const BROADCAST_TO_ALL: u8 = 2;
+pub const SEND_TO_AGENT: u8 = 0;
+pub const BROADCAST_TO_SYSTEM: u8 = 1;
+pub const BROADCAST_TO_ALL: u8 = 2;
 
 impl <P: Payload>Packet<P> {
 
