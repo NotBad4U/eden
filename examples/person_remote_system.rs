@@ -42,15 +42,15 @@ impl Agent for Person {
     fn is_dead(&self) -> bool { false }
 
     fn handle_message(&mut self, packet: &Packet<Self::P>) {
-
+        println!("I'm the person {} and I receive the packet {:?}", self.id(), packet);
     }
 
     fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
         Some(vec![
             Packet {
                 priority: 1,
-                sender: (TAXI_SYSTEM_ID, self.id()),
-                recipient: Recipient::Broadcast{ system_id: None },
+                sender: (PERSON_SYSTEM_ID, self.id()),
+                recipient: Recipient::Broadcast{ system_id: Some(TAXI_SYSTEM_ID) },
                 message: ProtocolTaxi::AskForATaxi,
             }
         ])
@@ -72,13 +72,14 @@ impl AgentFactory<Person> for PersonFactory {
     }
 }
 
+const PERSON_SYSTEM_ID: u8 = 1;
 const TAXI_SYSTEM_ID: u8 = 2;
 
 fn main() {
     env_logger::init();
 
     let mut system: AgentSystem<Person, ProtocolTaxi>;
-    let id_system = 1;
+    let id_system = PERSON_SYSTEM_ID;
     let addr_system = SocketAddr::from(([127, 0, 0, 1], 8080));
 
     system = AgentSystem::new(id_system, Box::new(PersonFactory), addr_system);

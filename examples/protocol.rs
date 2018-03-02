@@ -3,7 +3,7 @@ extern crate eden;
 
 use eden::packet::Payload;
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub enum ProtocolTaxi {
     AskForATaxi,
     AnswerTaxiAvailable,

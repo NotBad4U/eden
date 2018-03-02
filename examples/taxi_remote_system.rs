@@ -40,7 +40,11 @@ impl Agent for Taxi {
     fn is_dead(&self) -> bool { false }
 
     fn handle_message(&mut self, packet: &Packet<Self::P>) {
-
+        let sender_id = packet.sender.1;
+        match packet.message {
+            ProtocolTaxi::AskForATaxi => println!("The person {} ask for a taxi", sender_id),
+            _ => eprintln!("Not my business"),
+        };
     }
 
     fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
