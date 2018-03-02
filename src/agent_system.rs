@@ -82,12 +82,14 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 
     pub fn collect_messages_from_other_systems(&mut self) {
-        if let Some(packets) = self.collector.collect_packets() {
-            for p in packets {
+        if let Some(mut packets) = self.collector.collect_packets() {
+            let sys_id = self.id();
+
+            for p in packets.drain(..) {
                 match p.recipient {
                     Recipient::Agent{ system_id: _, agent_id } => {
                         if let Some(agent) = self.agents.get_mut(agent_id) {
-                            if agent.id() != p.sender.1 {
+                            if agent.id() != p.sender.1 || sys_id != p.sender.0 {
                                 agent.handle_message(&p);
                             }
                         }
@@ -95,7 +97,9 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
                     Recipient::Broadcast{ system_id: _ } => {
                         self.agents
                             .iter_mut()
-                            .filter(|&(_,ref agent)| agent.id() != p.sender.1)
+                            .filter(|&(_,ref agent)|
+                                agent.id() != p.sender.1
+                                || sys_id != p.sender.0)
                             .for_each(|(_, agent)| agent.handle_message(&p));
                     }
                 }

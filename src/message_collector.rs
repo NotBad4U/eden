@@ -52,8 +52,8 @@ impl <M: Payload>Collector<M> {
 
     pub fn collect_packets(&self) -> Option<Vec<Packet<M>>> {
         let mut packets = Vec::new();
-        packets = self.collect_remotes_packet(packets);
-        packets = self.collect_local_packet(packets);
+        self.collect_remotes_packet(&mut packets);
+        self.collect_local_packet(&mut packets);
 
         if packets.len() > 0 {
             Some(packets)
@@ -63,7 +63,7 @@ impl <M: Payload>Collector<M> {
         }
     }
 
-    fn collect_remotes_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
+    fn collect_remotes_packet(&self, packets: &mut Vec<Packet<M>>) {
         let mut msg = Message::new().unwrap();
 
         let mut sockets_to_poll: Vec<PollItem> =
@@ -74,26 +74,21 @@ impl <M: Payload>Collector<M> {
         zmq_poll(&mut sockets_to_poll, NONBLOCKING_POLL).unwrap();
 
         for (index_collector, socket) in sockets_to_poll.iter().enumerate() {
-            while socket.is_readable() {
+            if socket.is_readable() {
                 if self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
-                    trace!("Receive a packet from {}", index_collector);
                     if let Ok(p) = Packet::<M>::deserialize(&msg) {
                         packets.push(p);
                     } else {
-                        error!("Receive a packet that can be deserialize");
+                        trace!("Receive a packet that can be deserialize");
                     }
                 }
             }
         }
-
-        packets
     }
 
-    fn collect_local_packet(&self, mut packets: Vec<Packet<M>>) -> Vec<Packet<M>> {
+    fn collect_local_packet(&self, packets: &mut Vec<Packet<M>>) {
         for packet in self.local_collector.try_iter() {
             packets.push(packet);
         }
-
-        packets
     }
 }
