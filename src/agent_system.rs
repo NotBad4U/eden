@@ -4,7 +4,7 @@ use zmq::Context as ZmqContext;
 
 use agent::Agent;
 use agent_factory::AgentFactory;
-use packet::{Packet, Payload};
+use packet::{Packet, Payload, Recipient};
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
@@ -35,16 +35,21 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
         let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
         let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver);
 
-        AgentSystem {
+        let mut agent_system = AgentSystem {
             id,
             agents: Slab::new(),
             inboxes: Vec::new(),
-            sender,
+            sender: sender.clone(),
             factory,
             zmq_ctx,
             dispatcher,
             collector,
-        }
+        };
+
+        // Register itself to dispatch the message to the same agents.
+        agent_system.add_local_observer_system(id, sender);
+
+        agent_system
     }
 
 
@@ -77,8 +82,24 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 
     pub fn collect_messages_from_other_systems(&mut self) {
-        if let Some(mut packets) = self.collector.collect_packets() {
-            self.inboxes.append(&mut packets);
+        if let Some(packets) = self.collector.collect_packets() {
+            for p in packets {
+                match p.recipient {
+                    Recipient::Agent{ system_id: _, agent_id } => {
+                        if let Some(agent) = self.agents.get_mut(agent_id) {
+                            if agent.id() != p.sender.1 {
+                                agent.handle_message(&p);
+                            }
+                        }
+                    },
+                    Recipient::Broadcast{ system_id: _ } => {
+                        self.agents
+                            .iter_mut()
+                            .filter(|&(_,ref agent)| agent.id() != p.sender.1)
+                            .for_each(|(_, agent)| agent.handle_message(&p));
+                    }
+                }
+            }
         }
     }
 
@@ -114,8 +135,8 @@ impl<'a, A: Agent<P=M>, M: Payload> System<'a> for AgentSystem<A, M> {
 
     fn run(&mut self, _: Self::SystemData) {
         self.process_agent();
-        self.collect_messages_from_other_systems();
         self.process_messages();
+        self.collect_messages_from_other_systems();
     }
 }
 
@@ -282,8 +303,8 @@ mod test_sytem {
 
         fn handle_message(&mut self, packet: &Packet<Self::P>) {
             match packet.message {
-                ProtocolGreeting::Greeting(_) => { 
-                    println!("I'm {} and I got Hello", self.id());
+                ProtocolGreeting::Greeting(id) => {
+                    println!("I'm {} and I got Hello from {}", self.id(), id);
                 },
             }
         }
