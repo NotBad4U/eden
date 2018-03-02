@@ -4,14 +4,13 @@ use packet::{Packet, Recipient, Payload};
 use agent_system::SystemId;
 
 use std::collections::HashMap;
-use std::sync::mpsc::Sender;
 use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::vec::Drain;
 
 const NO_FLAGS: i32 = 0;
-const BROADCAST_FILTER: &'static str = "BROADCAST";
 
 pub struct Dispatcher<M: Payload> {
     system_id: u8,
