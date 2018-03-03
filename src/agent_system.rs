@@ -121,10 +121,6 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
         }
     }
 
-    pub fn get_sender(&self) -> Sender<Packet<M>> {
-        self.sender.clone()
-    }
-
     pub fn add_local_observer_system(&mut self, system_id: SystemId, channel_sender: Sender<Packet<M>>) {
         trace!("Adding the local observer system {}", system_id);
         self.dispatcher.add_local_sender(system_id, channel_sender);
@@ -135,14 +131,22 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
         self.collector.add_remote_collector(remotes_system.1);
     }
 
+    #[inline]
+    pub fn get_sender(&self) -> Sender<Packet<M>> {
+        self.sender.clone()
+    }
+
+    #[inline]
     pub fn get_nb_message_inbox(&self) -> usize {
         self.outbox.len()
     }
 
+    #[inline]
     pub fn id(&self) -> u8 {
         self.id
     }
 
+    #[inline]
     pub fn get_nb_agents(&self) -> usize {
         self.agents.len()
     }
