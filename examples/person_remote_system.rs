@@ -8,7 +8,7 @@ extern crate env_logger;
 mod protocol;
 
 use protocol::ProtocolTaxi;
-use eden::agent::Agent;
+use eden::agent::{Agent, Message};
 use eden::agent_system::AgentSystem;
 use eden::agent_factory::AgentFactory;
 use eden::packet::*;
@@ -45,11 +45,10 @@ impl Agent for Person {
         println!("I'm the person {} and I receive the packet {:?}", self.id(), packet);
     }
 
-    fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+    fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
         Some(vec![
-            Packet {
+            Message {
                 priority: 1,
-                sender: (PERSON_SYSTEM_ID, self.id()),
                 recipient: Recipient::Broadcast{ system_id: Some(TAXI_SYSTEM_ID) },
                 message: ProtocolTaxi::AskForATaxi,
             }

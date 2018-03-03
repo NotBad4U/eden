@@ -8,7 +8,7 @@ extern crate env_logger;
 mod protocol;
 
 use protocol::ProtocolTaxi;
-use eden::agent::Agent;
+use eden::agent::{Agent, Message};
 use eden::agent_system::AgentSystem;
 use eden::agent_factory::AgentFactory;
 use eden::packet::*;
@@ -47,7 +47,7 @@ impl Agent for Taxi {
         };
     }
 
-    fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+    fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
         None
     }
 }
