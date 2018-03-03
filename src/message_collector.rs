@@ -1,4 +1,4 @@
-use zmq::{Socket, Context, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
+use zmq::{Socket, Context as ZmqContext, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
 
 use packet::{Packet, Payload, BROADCAST_TO_ALL, BROADCAST_TO_SYSTEM, SEND_TO_AGENT};
 
@@ -6,14 +6,13 @@ use std::sync::mpsc::Receiver;
 use std::collections::VecDeque;
 use std::collections::vec_deque::Drain;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 const NONBLOCKING_POLL: i64 = 0;
 const INBOX_CAPACITY: usize = 128;
 
 pub struct Collector<M: Payload> {
     system_id: u8,
-    zmq_ctx: Arc<Context>,
+    zmq_ctx: ZmqContext,
     local_collector: Receiver<Packet<M>>,
     remotes_collector: Vec<Socket>,
     inbox: VecDeque<Packet<M>>,
@@ -22,7 +21,7 @@ pub struct Collector<M: Payload> {
 impl <M: Payload>Collector<M> {
 
     pub fn new(system_id: u8,
-        zmq_ctx: Arc<Context>,
+        zmq_ctx: ZmqContext,
         local_collector: Receiver<Packet<M>>,
         inbox_capacity: Option<usize>,
     ) -> Self {

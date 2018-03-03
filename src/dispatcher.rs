@@ -1,20 +1,16 @@
-use zmq::{Socket, Context, PUB};
+use zmq::{Socket, Context as ZmqContext, PUB};
 
 use packet::{Packet, Recipient, Payload};
 use agent_system::SystemId;
 
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::vec::Drain;
 
 const NO_FLAGS: i32 = 0;
 
 pub struct Dispatcher<M: Payload> {
-    system_id: u8,
-    zmq_ctx: Arc<Context>,
     local_observers: HashMap<u8, Sender<Packet<M>>>,
     broadcast_publisher: Socket,
 }
@@ -29,12 +25,12 @@ macro_rules! log_if_error {
 
 impl <M: Payload>Dispatcher<M> {
 
-    pub fn new(system_id: u8, zmq_ctx: Arc<Context>, addr: SocketAddr) -> Self {
+    pub fn new(zmq_ctx: &ZmqContext, addr: SocketAddr) -> Self {
+        let broadcast_publisher = create_publisher_chan_for_broadcast(&zmq_ctx, addr);
+
         Dispatcher {
-            system_id,
-            zmq_ctx,
             local_observers: HashMap::new(),
-            broadcast_publisher: create_publisher_chan_for_broadcast(addr)
+            broadcast_publisher,
         }
     }
 
@@ -94,10 +90,9 @@ impl <M: Payload>Dispatcher<M> {
     }
 }
 
-fn create_publisher_chan_for_broadcast(addr: SocketAddr) -> Socket {
+fn create_publisher_chan_for_broadcast(zmq_ctx: &ZmqContext, addr: SocketAddr) -> Socket {
     //TODO: Manage errors
-    let context = Context::new();
-    let zmq_publisher = context.socket(PUB).unwrap();
+    let zmq_publisher = zmq_ctx.socket(PUB).unwrap();
     zmq_publisher.bind(&format!("tcp://{}", addr)).expect("failed binding publisher");
     info!("Remote publisher is ready to send message on {}", addr);
 
@@ -107,6 +102,7 @@ fn create_publisher_chan_for_broadcast(addr: SocketAddr) -> Socket {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::sync::mpsc;
 
     const TEST_TIMESTAMP: u64 = 1520072619;
 
@@ -130,9 +126,9 @@ mod test {
             message: EmptyPayload{},
         };
 
-        let zmq_ctx = Context::new();
+        let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8080".parse().expect("Addr error");
-        let dispatcher = Dispatcher::new(0, Arc::new(zmq_ctx), addr);
+        let dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
     }
@@ -148,9 +144,9 @@ mod test {
             message: EmptyPayload{},
         };
 
-        let zmq_ctx = Context::new();
+        let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8081".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(0, Arc::new(zmq_ctx), addr);
+        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         dispatcher.add_local_sender(local_system_id, mpsc::channel().0);
 
@@ -167,9 +163,9 @@ mod test {
             message: EmptyPayload{},
         };
 
-        let zmq_ctx = Context::new();
+        let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8082".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(0, Arc::new(zmq_ctx), addr);
+        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
     }
@@ -184,9 +180,9 @@ mod test {
             message: EmptyPayload{},
         };
 
-        let zmq_ctx = Context::new();
+        let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8083".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(0, Arc::new(zmq_ctx), addr);
+        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
     }
@@ -202,9 +198,9 @@ mod test {
             message: EmptyPayload{},
         };
 
-        let zmq_ctx = Context::new();
+        let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8084".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(0, Arc::new(zmq_ctx), addr);
+        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         dispatcher.add_local_sender(local_system_id, mpsc::channel().0);
 

@@ -8,7 +8,6 @@ use packet::{Packet, Payload, Recipient};
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
-use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender};
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
@@ -21,7 +20,6 @@ pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
     outbox: Vec<Packet<M>>,
     sender: Sender<Packet<M>>,
     factory: Box<AgentFactory<A> + Send>,
-    zmq_ctx: Arc<ZmqContext>,
     dispatcher: Dispatcher<M>,
     collector: Collector<M>,
 }
@@ -31,10 +29,10 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     pub fn new(id: SystemId, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
         trace!("Creating the system {}", id);
 
-        let zmq_ctx = Arc::new(ZmqContext::new());
+        let zmq_ctx = ZmqContext::new();
         let (sender, receiver) = channel();
-        let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
-        let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver, None);
+        let dispatcher = Dispatcher::<M>::new(&zmq_ctx, addr);
+        let collector = Collector::<M>::new(id, zmq_ctx, receiver, None);
 
         let mut agent_system = AgentSystem {
             id,
@@ -42,7 +40,6 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
             outbox: Vec::new(),
             sender: sender.clone(),
             factory,
-            zmq_ctx,
             dispatcher,
             collector,
         };
