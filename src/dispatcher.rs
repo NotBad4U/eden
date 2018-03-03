@@ -108,6 +108,8 @@ fn create_publisher_chan_for_broadcast(addr: SocketAddr) -> Socket {
 mod test {
     use super::*;
 
+    const TEST_TIMESTAMP: u64 = 1520072619;
+
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct EmptyPayload {}
 
@@ -124,6 +126,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: None },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: EmptyPayload{},
         };
 
@@ -141,6 +144,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(local_system_id) },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: EmptyPayload{},
         };
 
@@ -159,6 +163,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(455) },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: EmptyPayload{},
         };
 
@@ -175,6 +180,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: 42, agent_id: 42 },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: EmptyPayload{},
         };
 
@@ -192,6 +198,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: local_system_id, agent_id: 0 },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: EmptyPayload{},
         };
 

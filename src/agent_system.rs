@@ -11,6 +11,7 @@ use message_collector::Collector;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender};
 use std::net::SocketAddr;
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
 pub type SystemId = u8;
 
@@ -68,9 +69,18 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 
     pub fn process_agent(&mut self) {
-        for (_, agent) in self.agents.iter_mut() {
-            if let Some(mut messages) = agent.update() {
-                self.outbox.append(&mut messages);
+        let sid = self.id();
+        let time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::new(0,0));
+
+        for (_, a) in self.agents.iter_mut() {
+            if let Some(mut messages) = a.update() {
+                let mut packets = messages.into_iter()
+                                        .map(|ms| ms.as_packet((sid, a.id()), time.as_secs()))
+                                        .collect();
+
+                self.outbox.append(&mut packets);
             }
         }
         self.outbox.sort();
@@ -153,8 +163,11 @@ impl<'a, A: Agent<P=M>, M: Payload> System<'a> for AgentSystem<A, M> {
 mod test_sytem {
 
     use super::*;
-    use shred::{DispatcherBuilder, Resources};
     use packet::Recipient;
+    use agent::Message;
+
+    use shred::{DispatcherBuilder, Resources};
+
     use std::net::ToSocketAddrs;
 
     struct Person {
@@ -183,7 +196,7 @@ mod test_sytem {
 
         fn handle_message(&mut self, _: &Packet<Self::P>) {}
 
-        fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
             None
         }
     }
@@ -257,11 +270,10 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
-                Packet {
+                Message {
                     priority: 1,
-                    sender: (0, self.id()),
                     recipient: Recipient::Agent{ agent_id: 1 - self.id(), system_id: 0 },
                     message: ProtocolGreeting::Greeting(self.id()),
                 }
@@ -318,11 +330,10 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
-                Packet {
+                Message {
                     priority: 1,
-                    sender: (0, self.id()),
                     recipient: Recipient::Broadcast{ system_id: None },
                     message: ProtocolGreeting::Greeting(self.id()),
                 }
@@ -390,11 +401,10 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Packet<Self::P>>> {
+        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
-                Packet {
+                Message {
                     priority: 1,
-                    sender: (1 - self.id_other_sytem, self.id()),
                     recipient: Recipient::Agent{ agent_id: 0, system_id: self.id_other_sytem },
                     message: ProtocolPos::Position(self.pos.0, self.pos.1),
                 }

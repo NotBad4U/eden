@@ -11,6 +11,7 @@ pub struct Packet<P: Payload> {
     pub recipient: Recipient,
     pub sender: (SystemId, AgentId),
     pub priority: u8,
+    pub timestamp: u64,
     pub message: P,
 }
 
@@ -40,12 +41,31 @@ macro_rules! push_usize {
     };
 }
 
+macro_rules! push_u64 {
+    ($u: expr, $buf: expr) => {
+        unsafe {
+            let s = transmute::<u64, [u8; 8]>($u);
+            $buf.extend_from_slice(&s);
+        }
+    };
+}
+
 macro_rules! read_usize {
     ($buf: expr) => {
         unsafe {
             let mut temp: [u8; 8] = Default::default();
             temp.copy_from_slice($buf);
             transmute::<[u8; 8], usize>(temp)
+        }
+    };
+}
+
+macro_rules! read_u64 {
+    ($buf: expr) => {
+        unsafe {
+            let mut temp: [u8; 8] = Default::default();
+            temp.copy_from_slice($buf);
+            transmute::<[u8; 8], u64>(temp)
         }
     };
 }
@@ -64,6 +84,15 @@ macro_rules! read_usize_from_cursor {
         {
             $cur += 8;
             read_usize!(&$buf[$cur - 8..$cur])
+        }
+    };
+}
+
+macro_rules! read_u64_from_cursor {
+    ($cur: expr, $buf: expr) => {
+        {
+            $cur += 8;
+            read_u64!(&$buf[$cur - 8..$cur])
         }
     };
 }
@@ -127,6 +156,7 @@ impl <P: Payload>Packet<P> {
             let system_id = read_u8_from_cursor!(cursor, msg);
             let agent_id = read_usize_from_cursor!(cursor, msg);
             let priority = read_u8_from_cursor!(cursor, msg);
+            let timestamp = read_u64_from_cursor!(cursor, msg);
 
             let msg_size = read_usize_from_cursor!(cursor, msg);
             let still_to_read = msg_size + cursor;
@@ -134,9 +164,10 @@ impl <P: Payload>Packet<P> {
             if  still_to_read == msg.len() {
                 match Payload::deserialize(&msg[cursor..still_to_read]) {
                     Ok(message) => Ok(Self {
-                        priority,
-                        sender: (system_id, agent_id),
                         recipient,
+                        sender: (system_id, agent_id),
+                        priority,
+                        timestamp,
                         message,
                     }),
                     Err(_) => Err(PacketSerdeError::PayloadDeserializationErr),
@@ -167,6 +198,7 @@ impl <P: Payload>Packet<P> {
         msg.push(self.sender.0);
         push_usize!(self.sender.1, msg);
         msg.push(self.priority);
+        push_u64!(self.timestamp, msg);
 
         let payload = self.message.serialize();
         push_usize!(payload.len(), msg);
@@ -201,6 +233,8 @@ mod test {
 
     use super::*;
 
+    const TEST_TIMESTAMP: u64 = 1520075517;
+
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct Position {
         pos_x: u8,
@@ -232,6 +266,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: None },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -240,6 +275,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
@@ -253,6 +289,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(10) },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -262,6 +299,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
@@ -275,6 +313,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: 1, agent_id: 8 },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -285,11 +324,12 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
 
-        assert_eq!(packet_expected , packet.serialize().as_slice());
+        assert_eq!(&packet_expected[..], packet.serialize().as_slice());
     }
 
     #[test]
@@ -299,6 +339,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
@@ -307,6 +348,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: None },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -323,6 +365,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
@@ -331,6 +374,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(1) },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -348,6 +392,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02, 0x01,                                     // pos_x, pos_y
         ];
@@ -356,6 +401,7 @@ mod test {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: 1 , agent_id: 8 },
             priority: 3,
+            timestamp: TEST_TIMESTAMP,
             message: Position{ pos_x: 2, pos_y: 1},
         };
 
@@ -383,6 +429,7 @@ mod test {
             0x01,                                           // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sender agent id
             0x03,                                           // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // message length
             0x02,                                           // pos_x, [MISSING] the pos_y
         ];
@@ -400,6 +447,7 @@ mod test {
             0x01,                                            // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // sender agent id
             0x03,                                            // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
 
             0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // [INCORRECT] message length
             0x02, 0x02,                                      // pos_x, the pos_y
@@ -418,6 +466,7 @@ mod test {
             0x01,                                            // sender system id
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // sender agent id
             0x03,                                            // priority
+            0xFD, 0x82, 0x9A, 0x5A, 0x00, 0x00, 0x00, 0x00, // test timestamp
 
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // [INCORRECT] message length
             0x02, 0x02,                                      // pos_x, the pos_y

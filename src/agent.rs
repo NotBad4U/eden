@@ -1,7 +1,25 @@
-use packet::Packet;
-use packet::Payload;
+use agent_system::SystemId;
+use packet::{Recipient, Packet, Payload};
 
 pub type AgentId = usize;
+
+pub struct Message<M> {
+    pub recipient: Recipient,
+    pub priority: u8,
+    pub message: M,
+}
+
+impl <M: Payload>Message<M> {
+    pub fn as_packet(self, sender: (SystemId, AgentId), timestamp: u64) -> Packet<M> {
+        Packet {
+            sender,
+            recipient: self.recipient,
+            priority: self.priority,
+            timestamp,
+            message: self.message,
+        }
+    }
+}
 
 pub trait Agent {
     type P: Payload;
@@ -14,5 +32,5 @@ pub trait Agent {
 
     fn handle_message(&mut self, packet: &Packet<Self::P>);
 
-    fn update(&mut self) -> Option<Vec<Packet<Self::P>>>;
+    fn update(&mut self) -> Option<Vec<Message<Self::P>>>;
 }
