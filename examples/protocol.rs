@@ -1,4 +1,8 @@
-// Share between person system and taxi.
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
+// Shared between person system and taxi.
 extern crate eden;
 
 use eden::packet::Payload;
