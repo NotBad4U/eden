@@ -3,16 +3,20 @@ use zmq::{Socket, Context, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
 use packet::{Packet, Payload, BROADCAST_TO_ALL, BROADCAST_TO_SYSTEM, SEND_TO_AGENT};
 
 use std::sync::mpsc::Receiver;
+use std::collections::VecDeque;
+use std::collections::vec_deque::Drain;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 const NONBLOCKING_POLL: i64 = 0;
+const INBOX_CAPACITY: usize = 128;
 
 pub struct Collector<M: Payload> {
     system_id: u8,
     zmq_ctx: Arc<Context>,
     local_collector: Receiver<Packet<M>>,
     remotes_collector: Vec<Socket>,
+    inbox: VecDeque<Packet<M>>,
 }
 
 impl <M: Payload>Collector<M> {
@@ -20,12 +24,14 @@ impl <M: Payload>Collector<M> {
     pub fn new(system_id: u8,
         zmq_ctx: Arc<Context>,
         local_collector: Receiver<Packet<M>>,
+        inbox_capacity: Option<usize>,
     ) -> Self {
         Collector {
             system_id,
             zmq_ctx,
             local_collector,
             remotes_collector: Vec::new(),
+            inbox: VecDeque::with_capacity(inbox_capacity.unwrap_or(INBOX_CAPACITY)),
         }
     }
 
@@ -50,20 +56,20 @@ impl <M: Payload>Collector<M> {
         }
     }
 
-    pub fn collect_packets(&self) -> Option<Vec<Packet<M>>> {
-        let mut packets = Vec::new();
-        self.collect_remotes_packet(&mut packets);
-        self.collect_local_packet(&mut packets);
+    pub fn drain_inbox(&mut self) -> Option<Drain<Packet<M>>> {
+        if self.inbox.len() > 0 {
+            return Some(self.inbox.drain(..))
+        }
 
-        if packets.len() > 0 {
-            Some(packets)
-        }
-        else {
-            None
-        }
+        None
     }
 
-    fn collect_remotes_packet(&self, packets: &mut Vec<Packet<M>>) {
+    pub fn collect_packets(&mut self) {
+        self.collect_remotes_packet();
+        self.collect_local_packet();
+    }
+
+    fn collect_remotes_packet(&mut self) {
         let mut msg = Message::new().unwrap();
 
         let mut sockets_to_poll: Vec<PollItem> =
@@ -75,20 +81,29 @@ impl <M: Payload>Collector<M> {
 
         for (index_collector, socket) in sockets_to_poll.iter().enumerate() {
             if socket.is_readable() {
-                if self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
-                    if let Ok(p) = Packet::<M>::deserialize(&msg) {
-                        packets.push(p);
+                while self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
+                    if self.inbox.len() < self.inbox.capacity() {
+                        if let Ok(packet) = Packet::<M>::deserialize(&msg) {
+                            self.inbox.push_back(packet);
+                        } else {
+                            trace!("Receive a packet that can be deserialize");
+                        }
                     } else {
-                        trace!("Receive a packet that can be deserialize");
+                        trace!("Can't receive more messages, the inbox is filled");
+                        break;
                     }
                 }
             }
         }
     }
 
-    fn collect_local_packet(&self, packets: &mut Vec<Packet<M>>) {
+    fn collect_local_packet(&mut self) {
         for packet in self.local_collector.try_iter() {
-            packets.push(packet);
+            self.inbox.push_back(packet);
+
+            if self.inbox.capacity() == 0 {
+                break;
+            }
         }
     }
 }

@@ -17,7 +17,7 @@ pub type SystemId = u8;
 pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
     id: SystemId,
     agents: Slab<A>,
-    inboxes: Vec<Packet<M>>,
+    outbox: Vec<Packet<M>>,
     sender: Sender<Packet<M>>,
     factory: Box<AgentFactory<A> + Send>,
     zmq_ctx: Arc<ZmqContext>,
@@ -33,12 +33,12 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
         let zmq_ctx = Arc::new(ZmqContext::new());
         let (sender, receiver) = channel();
         let dispatcher = Dispatcher::<M>::new(id, zmq_ctx.clone(), addr);
-        let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver);
+        let collector = Collector::<M>::new(id, zmq_ctx.clone(), receiver, None);
 
         let mut agent_system = AgentSystem {
             id,
             agents: Slab::new(),
-            inboxes: Vec::new(),
+            outbox: Vec::new(),
             sender: sender.clone(),
             factory,
             zmq_ctx,
@@ -70,22 +70,26 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     pub fn process_agent(&mut self) {
         for (_, agent) in self.agents.iter_mut() {
             if let Some(mut messages) = agent.update() {
-                self.inboxes.append(&mut messages);
+                self.outbox.append(&mut messages);
             }
         }
-        self.inboxes.sort();
+        self.outbox.sort();
     }
 
-    pub fn process_messages(&mut self) {
-        let packets = self.inboxes.drain(..);
+    pub fn send_agents_messages(&mut self) {
+        let packets = self.outbox.drain(..);
         self.dispatcher.dispatch_packets(packets);
     }
 
-    pub fn collect_messages_from_other_systems(&mut self) {
-        if let Some(mut packets) = self.collector.collect_packets() {
-            let sys_id = self.id();
+    pub fn collect_packets(&mut self) {
+        self.collector.collect_packets();
+    }
 
-            for p in packets.drain(..) {
+    pub fn distribute_messages_collected_to_the_agents(&mut self) {
+        let sys_id = self.id();
+
+        if let Some(packets) = self.collector.drain_inbox() {
+            for p in packets {
                 match p.recipient {
                     Recipient::Agent{ system_id: _, agent_id } => {
                         if let Some(agent) = self.agents.get_mut(agent_id) {
@@ -122,7 +126,7 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 
     pub fn get_nb_message_inbox(&self) -> usize {
-        self.inboxes.len()
+        self.outbox.len()
     }
 
     pub fn id(&self) -> u8 {
@@ -139,8 +143,9 @@ impl<'a, A: Agent<P=M>, M: Payload> System<'a> for AgentSystem<A, M> {
 
     fn run(&mut self, _: Self::SystemData) {
         self.process_agent();
-        self.process_messages();
-        self.collect_messages_from_other_systems();
+        self.send_agents_messages();
+        self.collect_packets();
+        self.distribute_messages_collected_to_the_agents();
     }
 }
 
