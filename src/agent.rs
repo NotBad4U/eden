@@ -10,12 +10,12 @@ pub struct Message<M> {
 }
 
 impl <M: Payload>Message<M> {
-    pub fn as_packet(self, sender: (SystemId, AgentId), timestamp: u64) -> Packet<M> {
+    pub fn as_packet(self, sender: (SystemId, AgentId), occurred: u64) -> Packet<M> {
         Packet {
             sender,
             recipient: self.recipient,
             priority: self.priority,
-            timestamp,
+            occurred,
             message: self.message,
         }
     }
