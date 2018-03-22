@@ -51,7 +51,7 @@ impl Agent for Taxi {
         };
     }
 
-    fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+    fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
         None
     }
 }

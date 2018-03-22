@@ -32,5 +32,5 @@ pub trait Agent {
 
     fn handle_message(&mut self, packet: &Packet<Self::P>);
 
-    fn update(&mut self) -> Option<Vec<Message<Self::P>>>;
+    fn act(&mut self) -> Option<Vec<Message<Self::P>>>;
 }

@@ -49,7 +49,7 @@ impl Agent for Person {
         println!("I'm the person {} and I receive the packet {:?}", self.id(), packet);
     }
 
-    fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+    fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
         Some(vec![
             Message {
                 priority: 1,

@@ -72,7 +72,7 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
                                 .unwrap_or(Duration::new(0,0));
 
         for (_, a) in self.agents.iter_mut() {
-            if let Some(mut messages) = a.update() {
+            if let Some(mut messages) = a.act() {
                 let mut packets = messages.into_iter()
                                         .map(|ms| ms.as_packet((sid, a.id()), occurred.as_secs()))
                                         .collect();
@@ -197,7 +197,7 @@ mod test_sytem {
 
         fn handle_message(&mut self, _: &Packet<Self::P>) {}
 
-        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
             None
         }
     }
@@ -271,7 +271,7 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
                 Message {
                     priority: 1,
@@ -331,7 +331,7 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
                 Message {
                     priority: 1,
@@ -402,7 +402,7 @@ mod test_sytem {
             }
         }
 
-        fn update(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
             Some(vec! [
                 Message {
                     priority: 1,
