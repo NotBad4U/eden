@@ -1,6 +1,7 @@
 use zmq::{Socket, Context as ZmqContext, PUB};
+use serde::{Serialize, de::DeserializeOwned};
 
-use packet::{Packet, Recipient, Payload};
+use message::*;
 use agent_system::SystemId;
 
 use std::collections::HashMap;
@@ -10,8 +11,8 @@ use std::vec::Drain;
 
 const NO_FLAGS: i32 = 0;
 
-pub struct Dispatcher<M: Payload> {
-    local_observers: HashMap<u8, Sender<Packet<M>>>,
+pub struct Dispatcher<C: Serialize + DeserializeOwned + Clone + Eq> {
+    local_observers: HashMap<u8, Sender<Message<C>>>,
     broadcast_publisher: Socket,
 }
 
@@ -23,7 +24,7 @@ macro_rules! log_if_error {
     }
 }
 
-impl <M: Payload>Dispatcher<M> {
+impl <C: Serialize + DeserializeOwned + Clone + Eq>Dispatcher<C> {
 
     pub fn new(zmq_ctx: &ZmqContext, addr: SocketAddr) -> Self {
         let broadcast_publisher = create_publisher_chan_for_broadcast(&zmq_ctx, addr);
@@ -34,50 +35,54 @@ impl <M: Payload>Dispatcher<M> {
         }
     }
 
-    pub fn add_local_sender(&mut self, sys_id: u8, sender: Sender<Packet<M>>) {
+    pub fn add_local_sender(&mut self, sys_id: u8, sender: Sender<Message<C>>) {
         self.local_observers.insert(sys_id, sender);
     }
 
-    pub fn dispatch_packets(&self, packets: Drain<Packet<M>>) {
-        for p in packets {
-            match p.recipient {
+    pub fn dispatch_messages(&self, messages: Drain<Message<C>>) {
+        for m in messages {
+            match m.recipient {
                 Recipient::Agent{ system_id, agent_id: _ }
                 | Recipient::Broadcast{ system_id: Some(system_id) } => {
-                    if self.is_a_packet_for_a_local_system(&p) {
-                        self.forward_message_to_local_sytem(p, system_id);
+                    if self.is_a_message_for_a_local_system(&m) {
+                        self.forward_message_to_local_sytem(m, system_id);
                     } else {
-                        self.forward_message_to_remote_sytem(p);
+                        self.forward_message_to_remote_sytem(m);
                     }
                 },
                 Recipient::Broadcast{ system_id: None } => {
-                    self.broadcast_packet_to_local_systems(p.clone());
-                    self.forward_message_to_remote_sytem(p);
+                    self.broadcast_message_to_local_systems(m.clone());
+                    self.forward_message_to_remote_sytem(m);
                 },
             }
         }
     }
 
-    fn forward_message_to_local_sytem(&self, packet: Packet<M>, system_id: SystemId) {
+    fn forward_message_to_local_sytem(&self, message: Message<C>, system_id: SystemId) {
         if let Some(observer) = self.local_observers.get(&system_id) {
-            debug!("send a packet to a agent in the local system {}", system_id);
-            log_if_error!(observer.send(packet))
+            debug!("send a message to a agent in the local system {}", system_id);
+            log_if_error!(observer.send(message))
         }
     }
 
-    fn broadcast_packet_to_local_systems(&self, packet: Packet<M>) {
+    fn broadcast_message_to_local_systems(&self, message: Message<C>) {
         for (_, observer) in self.local_observers.iter() {
-            debug!("broadcast a packet to all local observers systems");
-            log_if_error!(observer.send(packet.clone()))
+            debug!("broadcast a message to all local observers systems");
+            log_if_error!(observer.send(message.clone()))
         }
     }
 
-    fn forward_message_to_remote_sytem(&self, packet: Packet<M>) {
-        let msg = packet.serialize();
-        log_if_error!(self.broadcast_publisher.send(&msg, NO_FLAGS))
+    fn forward_message_to_remote_sytem(&self, message: Message<C>) {
+        if let Ok(msg) = message.serialize() {
+            log_if_error!(self.broadcast_publisher.send(&msg, NO_FLAGS))
+        }
+        else {
+            error!("Error during serialize");
+        }
     }
 
-    fn is_a_packet_for_a_local_system(&self, packet: &Packet<M>) -> bool {
-        match packet.recipient {
+    fn is_a_message_for_a_local_system(&self, message: &Message<C>) -> bool {
+        match message.recipient {
             Recipient::Agent{ system_id, agent_id: _ } if self.local_observers.contains_key(&system_id) => true,
             Recipient::Broadcast{ system_id } => {
                 if let Some(system_id) = system_id {
@@ -117,8 +122,8 @@ mod test {
     }
 
     #[test]
-    fn it_should_detect_that_is_a_packet_for_a_remote_system() {
-        let packet = Packet {
+    fn it_should_detect_that_is_a_message_for_a_remote_system() {
+        let message = message {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: None },
             priority: 3,
@@ -130,13 +135,13 @@ mod test {
         let addr = "127.0.0.1:8080".parse().expect("Addr error");
         let dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
-        assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
+        assert_eq!(false, dispatcher.is_a_message_for_a_local_system(&message));
     }
 
     #[test]
-    fn it_should_detect_that_is_a_packet_for_a_local_known_system() {
+    fn it_should_detect_that_is_a_message_for_a_local_known_system() {
         let local_system_id = 1;
-        let packet = Packet {
+        let message = message {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(local_system_id) },
             priority: 3,
@@ -150,12 +155,12 @@ mod test {
 
         dispatcher.add_local_sender(local_system_id, mpsc::channel().0);
 
-        assert!(true, dispatcher.is_a_packet_for_a_local_system(&packet));
+        assert!(true, dispatcher.is_a_message_for_a_local_system(&message));
     }
 
     #[test]
-    fn it_should_detect_that_his_a_packet_for_a_remote_system() {
-        let packet = Packet {
+    fn it_should_detect_that_his_a_message_for_a_remote_system() {
+        let message = message {
             sender: (1, 2),
             recipient: Recipient::Broadcast{ system_id: Some(455) },
             priority: 3,
@@ -167,12 +172,12 @@ mod test {
         let addr = "127.0.0.1:8082".parse().expect("Addr error");
         let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
-        assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
+        assert_eq!(false, dispatcher.is_a_message_for_a_local_system(&message));
     }
 
     #[test]
-    fn it_should_detect_that_his_a_packet_for_an_agent_in_a_remote_system() {
-        let packet = Packet {
+    fn it_should_detect_that_his_a_message_for_an_agent_in_a_remote_system() {
+        let message = message {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: 42, agent_id: 42 },
             priority: 3,
@@ -184,13 +189,13 @@ mod test {
         let addr = "127.0.0.1:8083".parse().expect("Addr error");
         let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
-        assert_eq!(false, dispatcher.is_a_packet_for_a_local_system(&packet));
+        assert_eq!(false, dispatcher.is_a_message_for_a_local_system(&message));
     }
 
     #[test]
-    fn it_should_detect_that_his_a_packet_for_an_agent_in_a_local_system() {
+    fn it_should_detect_that_his_a_message_for_an_agent_in_a_local_system() {
         let local_system_id = 1;
-        let packet = Packet {
+        let message = message {
             sender: (1, 2),
             recipient: Recipient::Agent{ system_id: local_system_id, agent_id: 0 },
             priority: 3,
@@ -204,6 +209,6 @@ mod test {
 
         dispatcher.add_local_sender(local_system_id, mpsc::channel().0);
 
-        assert!(dispatcher.is_a_packet_for_a_local_system(&packet));
+        assert!(dispatcher.is_a_message_for_a_local_system(&message));
     }
 }

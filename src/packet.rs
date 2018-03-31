@@ -6,14 +6,6 @@ use std::mem::transmute;
 use std::error::Error;
 use std::fmt;
 
-pub enum Performative {
-    Notify,
-    NotifyAll,
-    AskOne,
-    AskAll,
-    InReplyTo,
-}
-
 #[derive(Clone, Eq, Debug)]
 pub struct Packet<P: Payload> {
     pub recipient: Recipient,

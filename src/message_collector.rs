@@ -1,6 +1,7 @@
-use zmq::{Socket, Context as ZmqContext, SUB, PollItem, POLLIN, poll as zmq_poll, Message};
+use zmq::{Socket, Context as ZmqContext, SUB, PollItem, POLLIN, poll as zmq_poll, Message as ZmqMessage};
+use serde::{Serialize, de::DeserializeOwned};
 
-use packet::{Packet, Payload, BROADCAST_TO_ALL, BROADCAST_TO_SYSTEM, SEND_TO_AGENT};
+use message::*;
 
 use std::sync::mpsc::Receiver;
 use std::collections::VecDeque;
@@ -10,19 +11,23 @@ use std::net::SocketAddr;
 const NONBLOCKING_POLL: i64 = 0;
 const INBOX_CAPACITY: usize = 128;
 
-pub struct Collector<M: Payload> {
+pub struct Collector<C: Serialize + DeserializeOwned + Clone + Eq> {
     system_id: u8,
     zmq_ctx: ZmqContext,
-    local_collector: Receiver<Packet<M>>,
+    local_collector: Receiver<Message<C>>,
     remotes_collector: Vec<Socket>,
-    inbox: VecDeque<Packet<M>>,
+    inbox: VecDeque<Message<C>>,
 }
 
-impl <M: Payload>Collector<M> {
+pub const SEND_TO_AGENT: u8 = 0;
+pub const BROADCAST_TO_SYSTEM: u8 = 1;
+pub const BROADCAST_TO_ALL: u8 = 2;
+
+impl <C: Serialize + DeserializeOwned + Clone + Eq>Collector<C> {
 
     pub fn new(system_id: u8,
         zmq_ctx: ZmqContext,
-        local_collector: Receiver<Packet<M>>,
+        local_collector: Receiver<Message<C>>,
         inbox_capacity: Option<usize>,
     ) -> Self {
         Collector {
@@ -55,7 +60,7 @@ impl <M: Payload>Collector<M> {
         }
     }
 
-    pub fn drain_inbox(&mut self) -> Option<Drain<Packet<M>>> {
+    pub fn drain_inbox(&mut self) -> Option<Drain<Message<C>>> {
         if self.inbox.len() > 0 {
             return Some(self.inbox.drain(..))
         }
@@ -63,13 +68,13 @@ impl <M: Payload>Collector<M> {
         None
     }
 
-    pub fn collect_packets(&mut self) {
-        self.collect_remotes_packet();
-        self.collect_local_packet();
+    pub fn collect_messages(&mut self) {
+        self.collect_remotes_message();
+        self.collect_local_message();
     }
 
-    fn collect_remotes_packet(&mut self) {
-        let mut msg = Message::new().unwrap();
+    fn collect_remotes_message(&mut self) {
+        let mut msg = ZmqMessage::new().unwrap();
 
         let mut sockets_to_poll: Vec<PollItem> =
             self.remotes_collector
@@ -82,10 +87,10 @@ impl <M: Payload>Collector<M> {
             if socket.is_readable() {
                 while self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
                     if self.inbox.len() < self.inbox.capacity() {
-                        if let Ok(packet) = Packet::<M>::deserialize(&msg) {
-                            self.inbox.push_back(packet);
+                        if let Ok(message) = Message::<C>::deserialize(&msg) {
+                            self.inbox.push_back(message);
                         } else {
-                            trace!("Receive a packet that can be deserialize");
+                            trace!("Receive a message that can be deserialize");
                         }
                     } else {
                         trace!("Can't receive more messages, the inbox is filled");
@@ -96,9 +101,9 @@ impl <M: Payload>Collector<M> {
         }
     }
 
-    fn collect_local_packet(&mut self) {
-        for packet in self.local_collector.try_iter() {
-            self.inbox.push_back(packet);
+    fn collect_local_message(&mut self) {
+        for message in self.local_collector.try_iter() {
+            self.inbox.push_back(message);
 
             if self.inbox.capacity() == 0 {
                 break;

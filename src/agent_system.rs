@@ -1,10 +1,11 @@
 use slab::Slab;
 use shred::System;
 use zmq::Context as ZmqContext;
+use serde::{Serialize, de::DeserializeOwned};
 
+use message::*;
 use agent::Agent;
 use agent_factory::AgentFactory;
-use packet::{Packet, Payload, Recipient};
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
@@ -14,25 +15,25 @@ use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
 pub type SystemId = u8;
 
-pub struct AgentSystem<A: Agent<P=M>, M: Payload> {
+pub struct AgentSystem<A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq> {
     id: SystemId,
     agents: Slab<A>,
-    outbox: Vec<Packet<M>>,
-    sender: Sender<Packet<M>>,
+    outbox: Vec<Message<C>>,
+    sender: Sender<Message<C>>,
     factory: Box<AgentFactory<A> + Send>,
-    dispatcher: Dispatcher<M>,
-    collector: Collector<M>,
+    dispatcher: Dispatcher<C>,
+    collector: Collector<C>,
 }
 
-impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
+impl <A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>AgentSystem<A, C> {
 
     pub fn new(id: SystemId, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
         trace!("Creating the system {}", id);
 
         let zmq_ctx = ZmqContext::new();
         let (sender, receiver) = channel();
-        let dispatcher = Dispatcher::<M>::new(&zmq_ctx, addr);
-        let collector = Collector::<M>::new(id, zmq_ctx, receiver, None);
+        let dispatcher = Dispatcher::<C>::new(&zmq_ctx, addr);
+        let collector = Collector::<C>::new(id, zmq_ctx, receiver, None);
 
         let mut agent_system = AgentSystem {
             id,
@@ -73,35 +74,35 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
 
         for (_, a) in self.agents.iter_mut() {
             if let Some(mut messages) = a.act() {
-                let mut packets = messages.into_iter()
-                                        .map(|ms| ms.as_packet((sid, a.id()), occurred.as_secs()))
-                                        .collect();
+                for m in messages.iter_mut() {
+                    m.set_occurred(occurred.as_secs());
+                }
 
-                self.outbox.append(&mut packets);
+                self.outbox.append(&mut messages);
             }
         }
         self.outbox.sort();
     }
 
     pub fn send_agents_messages(&mut self) {
-        let packets = self.outbox.drain(..);
-        self.dispatcher.dispatch_packets(packets);
+        let messages = self.outbox.drain(..);
+        self.dispatcher.dispatch_messages(messages);
     }
 
-    pub fn collect_packets(&mut self) {
-        self.collector.collect_packets();
+    pub fn collect_messages(&mut self) {
+        self.collector.collect_messages();
     }
 
     pub fn distribute_messages_collected_to_the_agents(&mut self) {
         let sys_id = self.id();
 
-        if let Some(packets) = self.collector.drain_inbox() {
-            for p in packets {
-                match p.recipient {
+        if let Some(messages) = self.collector.drain_inbox() {
+            for m in messages {
+                match m.recipient {
                     Recipient::Agent{ system_id: _, agent_id } => {
                         if let Some(agent) = self.agents.get_mut(agent_id) {
-                            if agent.id() != p.sender.1 || sys_id != p.sender.0 {
-                                agent.handle_message(&p);
+                            if agent.id() != m.sender.1 || sys_id != m.sender.0 {
+                                agent.handle_message(&m);
                             }
                         }
                     },
@@ -109,16 +110,16 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
                         self.agents
                             .iter_mut()
                             .filter(|&(_,ref agent)|
-                                agent.id() != p.sender.1
-                                || sys_id != p.sender.0)
-                            .for_each(|(_, agent)| agent.handle_message(&p));
+                                agent.id() != m.sender.1
+                                || sys_id != m.sender.0)
+                            .for_each(|(_, agent)| agent.handle_message(&m));
                     }
                 }
             }
         }
     }
 
-    pub fn add_local_observer_system(&mut self, system_id: SystemId, channel_sender: Sender<Packet<M>>) {
+    pub fn add_local_observer_system(&mut self, system_id: SystemId, channel_sender: Sender<Message<C>>) {
         trace!("Adding the local observer system {}", system_id);
         self.dispatcher.add_local_sender(system_id, channel_sender);
     }
@@ -129,7 +130,7 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 
     #[inline]
-    pub fn get_sender(&self) -> Sender<Packet<M>> {
+    pub fn get_sender(&self) -> Sender<Message<C>> {
         self.sender.clone()
     }
 
@@ -149,13 +150,13 @@ impl <A: Agent<P=M>, M: Payload>AgentSystem<A, M> {
     }
 }
 
-impl<'a, A: Agent<P=M>, M: Payload> System<'a> for AgentSystem<A, M> {
+impl<'a, A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>System<'a> for AgentSystem<A, C> {
     type SystemData = ();
 
     fn run(&mut self, _: Self::SystemData) {
         self.process_agent();
         self.send_agents_messages();
-        self.collect_packets();
+        self.collect_messages();
         self.distribute_messages_collected_to_the_agents();
     }
 }
@@ -195,7 +196,7 @@ mod test_sytem {
 
         fn is_dead(&self) -> bool { false }
 
-        fn handle_message(&mut self, _: &Packet<Self::P>) {}
+        fn handle_message(&mut self, _: &Message<Self::P>) {}
 
         fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
             None
