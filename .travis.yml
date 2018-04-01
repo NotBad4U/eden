@@ -1,0 +1,29 @@
+language: rust
+sudo: false
+
+rust:
+  - nightly
+  - stable
+
+cache: cargo
+
+
+addons:
+  apt:
+    packages:
+      - libzmq3-dev
+
+
+before_install:
+  - export ROOT_PATH=`pwd`
+
+
+before_script:
+  - export PATH=$HOME/.cargo/bin:$PATH
+  - which cargo-coveralls || cargo install cargo-travis
+
+
+after_success:
+  - if [ "$TRAVIS_RUST_VERSION" == "nightly" ]; then
+      cargo coveralls --all --verbose;
+    fi
