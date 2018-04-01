@@ -34,5 +34,10 @@ before_script:
       ./autogen.sh
       ./configure --prefix=$HOME --with-libsodium
       make && make install
-
       cd $TRAVIS_BUILD_DIR
+  - which cargo-coveralls || cargo install cargo-travis
+
+after_success:
+  - if [ "$TRAVIS_RUST_VERSION" == "nightly" ]; then
+      cargo coveralls --all --verbose;
+    fi
