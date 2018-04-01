@@ -12,6 +12,12 @@ addons:
   apt:
     packages:
       - libzmq3-dev
+      # Needed for cargo-coveralls
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - cmake
+      - gcc
 
 
 before_install:
