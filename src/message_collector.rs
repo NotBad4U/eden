@@ -1,17 +1,17 @@
 use zmq::{Socket, Context as ZmqContext, SUB, PollItem, POLLIN, poll as zmq_poll, Message as ZmqMessage};
-use serde::{Serialize, de::DeserializeOwned};
 
 use message::*;
 
-use std::sync::mpsc::Receiver;
-use std::collections::VecDeque;
-use std::collections::vec_deque::Drain;
-use std::net::SocketAddr;
+use std::{
+    sync::mpsc::Receiver,
+    collections::{ VecDeque, vec_deque::Drain },
+    net::SocketAddr,
+};
 
 const NONBLOCKING_POLL: i64 = 0;
 const INBOX_CAPACITY: usize = 128;
 
-pub struct Collector<C: Serialize + DeserializeOwned + Clone + Eq> {
+pub struct Collector<C: Content> {
     system_id: u8,
     zmq_ctx: ZmqContext,
     local_collector: Receiver<Message<C>>,
@@ -23,7 +23,7 @@ pub const SEND_TO_AGENT: u8 = 0;
 pub const BROADCAST_TO_SYSTEM: u8 = 1;
 pub const BROADCAST_TO_ALL: u8 = 2;
 
-impl <C: Serialize + DeserializeOwned + Clone + Eq>Collector<C> {
+impl <C: Content>Collector<C> {
 
     pub fn new(system_id: u8,
         zmq_ctx: ZmqContext,

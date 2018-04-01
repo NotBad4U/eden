@@ -1,17 +1,22 @@
 use zmq::{Socket, Context as ZmqContext, PUB};
-use serde::{Serialize, de::DeserializeOwned};
 
 use message::*;
 use agent_system::SystemId;
 
-use std::collections::HashMap;
-use std::sync::mpsc::Sender;
-use std::net::SocketAddr;
-use std::vec::Drain;
+use std::{
+    collections::HashMap,
+    sync::mpsc::Sender,
+    net::SocketAddr,
+    vec::Drain,
+};
 
 const NO_FLAGS: i32 = 0;
 
-pub struct Dispatcher<C: Serialize + DeserializeOwned + Clone + Eq> {
+const SEND_TO_AGENT: u8 = 0;
+const BROADCAST_TO_SYSTEM: u8 = 1;
+const BROADCAST_TO_ALL: u8 = 2;
+
+pub struct Dispatcher<C: Content> {
     local_observers: HashMap<u8, Sender<Message<C>>>,
     broadcast_publisher: Socket,
 }
@@ -24,7 +29,7 @@ macro_rules! log_if_error {
     }
 }
 
-impl <C: Serialize + DeserializeOwned + Clone + Eq>Dispatcher<C> {
+impl <C: Content>Dispatcher<C> {
 
     pub fn new(zmq_ctx: &ZmqContext, addr: SocketAddr) -> Self {
         let broadcast_publisher = create_publisher_chan_for_broadcast(&zmq_ctx, addr);
@@ -65,16 +70,26 @@ impl <C: Serialize + DeserializeOwned + Clone + Eq>Dispatcher<C> {
         }
     }
 
-    fn broadcast_message_to_local_systems(&self, message: Message<C>) {
+    fn broadcast_message_to_local_systems(&self, message: &Message<C>) {
         for (_, observer) in self.local_observers.iter() {
             debug!("broadcast a message to all local observers systems");
             log_if_error!(observer.send(message.clone()))
         }
     }
 
-    fn forward_message_to_remote_sytem(&self, message: Message<C>) {
+    // As we use zmq PUB/SUB, it's the same method for broadcasting or target message
+    fn forward_message_to_remote_sytem(&self, message: &Message<C>) {
+        let filter_zmq = get_zmq_filter(message);
+
         if let Ok(msg) = message.serialize() {
-            log_if_error!(self.broadcast_publisher.send(&msg, NO_FLAGS))
+            log_if_error!(self.broadcast_publisher
+                            .send_multipart(
+                                &[
+                                    &filter_zmq[..],
+                                    msg.as_slice(),
+                                ]
+                                , NO_FLAGS)
+                            )
         }
         else {
             error!("Error during serialize");
@@ -95,6 +110,14 @@ impl <C: Serialize + DeserializeOwned + Clone + Eq>Dispatcher<C> {
     }
 }
 
+fn get_zmq_filter<C>(message: &Message<C>) -> [u8; 2] {
+    match message.recipient {
+        Recipient::Agent{ system_id, agent_id: _ } => [ SEND_TO_AGENT, system_id ],
+        Recipient::Broadcast{ system_id: Some(system_id) } => [ BROADCAST_TO_SYSTEM, system_id ],
+        Recipient::Broadcast{ system_id: None } => [ BROADCAST_TO_ALL, 0 ],
+    }
+}
+
 fn create_publisher_chan_for_broadcast(zmq_ctx: &ZmqContext, addr: SocketAddr) -> Socket {
     //TODO: Manage errors
     let zmq_publisher = zmq_ctx.socket(PUB).unwrap();
@@ -104,32 +127,30 @@ fn create_publisher_chan_for_broadcast(zmq_ctx: &ZmqContext, addr: SocketAddr) -
     zmq_publisher
 }
 
+
 #[cfg(test)]
 mod test {
     use super::*;
     use std::sync::mpsc;
 
-    const TEST_TIMESTAMP: u64 = 1520072619;
-
-    #[derive(Clone, Debug, Eq, PartialEq)]
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     struct EmptyPayload {}
 
-    impl Payload for EmptyPayload {
-
-        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { unimplemented!() }
-
-        fn serialize(&self) -> Vec<u8> { unimplemented!() }
-    }
+    impl Content for EmptyPayload {}
 
     #[test]
     fn it_should_detect_that_is_a_message_for_a_remote_system() {
-        let message = message {
-            sender: (1, 2),
-            recipient: Recipient::Broadcast{ system_id: None },
-            priority: 3,
-            occurred: TEST_TIMESTAMP,
-            message: EmptyPayload{},
-        };
+        let message = Message::new(
+            Performative::Confirm,
+            Recipient::Broadcast{ system_id: None },
+            3,
+            0,
+            None,
+            None,
+            None,
+            None,
+            EmptyPayload{},
+        );
 
         let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8080".parse().expect("Addr error");
@@ -141,13 +162,18 @@ mod test {
     #[test]
     fn it_should_detect_that_is_a_message_for_a_local_known_system() {
         let local_system_id = 1;
-        let message = message {
-            sender: (1, 2),
-            recipient: Recipient::Broadcast{ system_id: Some(local_system_id) },
-            priority: 3,
-            occurred: TEST_TIMESTAMP,
-            message: EmptyPayload{},
-        };
+
+        let message = Message::new(
+            Performative::Confirm,
+            Recipient::Broadcast{ system_id: Some(local_system_id) },
+            3,
+            0,
+            None,
+            None,
+            None,
+            None,
+            EmptyPayload{},
+        );
 
         let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8081".parse().expect("Addr error");
@@ -160,34 +186,42 @@ mod test {
 
     #[test]
     fn it_should_detect_that_his_a_message_for_a_remote_system() {
-        let message = message {
-            sender: (1, 2),
-            recipient: Recipient::Broadcast{ system_id: Some(455) },
-            priority: 3,
-            occurred: TEST_TIMESTAMP,
-            message: EmptyPayload{},
-        };
+        let message = Message::new(
+            Performative::Confirm,
+            Recipient::Broadcast{ system_id: Some(255) },
+            3,
+            0,
+            None,
+            None,
+            None,
+            None,
+            EmptyPayload{},
+        );
 
         let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8082".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
+        let dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         assert_eq!(false, dispatcher.is_a_message_for_a_local_system(&message));
     }
 
     #[test]
     fn it_should_detect_that_his_a_message_for_an_agent_in_a_remote_system() {
-        let message = message {
-            sender: (1, 2),
-            recipient: Recipient::Agent{ system_id: 42, agent_id: 42 },
-            priority: 3,
-            occurred: TEST_TIMESTAMP,
-            message: EmptyPayload{},
-        };
+        let message = Message::new(
+            Performative::Confirm,
+            Recipient::Agent{ system_id: 42, agent_id: 42 },
+            3,
+            0,
+            None,
+            None,
+            None,
+            None,
+            EmptyPayload{},
+        );
 
         let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8083".parse().expect("Addr error");
-        let mut dispatcher = Dispatcher::new(&zmq_ctx, addr);
+        let dispatcher = Dispatcher::new(&zmq_ctx, addr);
 
         assert_eq!(false, dispatcher.is_a_message_for_a_local_system(&message));
     }
@@ -195,13 +229,18 @@ mod test {
     #[test]
     fn it_should_detect_that_his_a_message_for_an_agent_in_a_local_system() {
         let local_system_id = 1;
-        let message = message {
-            sender: (1, 2),
-            recipient: Recipient::Agent{ system_id: local_system_id, agent_id: 0 },
-            priority: 3,
-            occurred: TEST_TIMESTAMP,
-            message: EmptyPayload{},
-        };
+
+        let message = Message::new(
+            Performative::Confirm,
+            Recipient::Agent{ system_id: local_system_id, agent_id: 0 },
+            3,
+            0,
+            None,
+            None,
+            None,
+            None,
+            EmptyPayload{},
+        );
 
         let zmq_ctx = ZmqContext::new();
         let addr = "127.0.0.1:8084".parse().expect("Addr error");

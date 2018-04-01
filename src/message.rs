@@ -74,10 +74,10 @@ pub enum Performative {
     Subscribe,
 }
 
-pub trait Content: Serialize + DeserializeOwned + Clone + Eq {}
+pub trait Content: Serialize + DeserializeOwned + Clone {}
 
-#[derive(Serialize, Deserialize, Clone, Eq, Debug)]
-pub struct Message<C: Eq> {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Message<C> {
     /// Identifier of the message
     pub id: Uuid,
 
@@ -117,7 +117,7 @@ pub struct Message<C: Eq> {
 }
 
 
-impl<C: Serialize + DeserializeOwned + Clone + Eq> Message<C> {
+impl<C: Content> Message<C> {
     pub fn new(
         performative: Performative,
         sender: (SystemId, AgentId),
@@ -154,31 +154,37 @@ impl<C: Serialize + DeserializeOwned + Clone + Eq> Message<C> {
         bincode::deserialize(msg)
     }
 
+    pub fn set_sender(&mut self, sender: (SystemId, AgentId)) {
+        self.sender = sender;
+    }
+
     pub fn set_occurred(&mut self , occurred: u64) {
         self.occurred = occurred;
     }
 }
 
-impl <C: Eq>Ord for Message<C> {
+impl <C: Content>Ord for Message<C> {
     fn cmp(&self, other: &Message<C>) -> Ordering {
         self.priority.cmp(&other.priority)
     }
 }
 
-impl <C: Eq>PartialOrd for Message<C> {
+impl <C: Content>PartialOrd for Message<C> {
     fn partial_cmp(&self, other: &Message<C>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl <C: Eq>PartialEq for Message<C> {
+impl <C: Content>PartialEq for Message<C> {
     fn eq(&self, other: &Message<C>) -> bool {
         self.id == other.id
     }
 }
 
+impl <C: Content>Eq for Message<C> {}
+
 #[cfg(test)]
-mod test {
+mod test_message {
 
     use super::*;
 
@@ -187,6 +193,8 @@ mod test {
         x: u8,
         y: u8,
     }
+
+    impl Content for Position {}
 
     #[test]
     fn it_should_cmp_message_priority_to_order_them() {

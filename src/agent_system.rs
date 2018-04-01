@@ -1,7 +1,6 @@
 use slab::Slab;
 use shred::System;
 use zmq::Context as ZmqContext;
-use serde::{Serialize, de::DeserializeOwned};
 
 use message::*;
 use agent::Agent;
@@ -9,13 +8,15 @@ use agent_factory::AgentFactory;
 use dispatcher::Dispatcher;
 use message_collector::Collector;
 
-use std::sync::mpsc::{channel, Sender};
-use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::{
+    sync::mpsc::{channel, Sender},
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH, Duration},
+};
 
 pub type SystemId = u8;
 
-pub struct AgentSystem<A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq> {
+pub struct AgentSystem<A: Agent<C=C>, C: Content> {
     id: SystemId,
     agents: Slab<A>,
     outbox: Vec<Message<C>>,
@@ -25,7 +26,7 @@ pub struct AgentSystem<A: Agent<Content=C>, C: Serialize + DeserializeOwned + Cl
     collector: Collector<C>,
 }
 
-impl <A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>AgentSystem<A, C> {
+impl <A: Agent<C=C>, C: Content>AgentSystem<A, C> {
 
     pub fn new(id: SystemId, factory: Box<AgentFactory<A> + Send>, addr: SocketAddr) -> Self {
         trace!("Creating the system {}", id);
@@ -150,7 +151,7 @@ impl <A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>AgentSys
     }
 }
 
-impl<'a, A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>System<'a> for AgentSystem<A, C> {
+impl<'a, A: Agent<C=C>, C: Content>System<'a> for AgentSystem<A, C> {
     type SystemData = ();
 
     fn run(&mut self, _: Self::SystemData) {
@@ -161,34 +162,30 @@ impl<'a, A: Agent<Content=C>, C: Serialize + DeserializeOwned + Clone + Eq>Syste
     }
 }
 
+
 #[cfg(test)]
 mod test_sytem {
 
-    use super::*;
-    use packet::Recipient;
-    use agent::Message;
-
     use shred::{DispatcherBuilder, Resources};
 
-    use std::net::ToSocketAddrs;
+    use super::*;
 
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     struct Person {
         id: usize,
     }
 
-    #[derive(Clone, Eq, PartialEq)]
+    impl Content for Person {}
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     enum Protocol{
         Foo,
     }
 
-    impl Payload for Protocol {
-        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(Protocol::Foo) }
-
-        fn serialize(&self) -> Vec<u8> { unimplemented!() }
-    }
+    impl Content for Protocol {}
 
     impl Agent for Person {
-        type P = Protocol;
+        type C = Protocol;
 
         fn id(&self) -> usize { self.id }
 
@@ -196,9 +193,9 @@ mod test_sytem {
 
         fn is_dead(&self) -> bool { false }
 
-        fn handle_message(&mut self, _: &Message<Self::P>) {}
+        fn handle_message(&mut self, _: &Message<Self::C>) {}
 
-        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::C>>> {
             None
         }
     }
@@ -239,24 +236,23 @@ mod test_sytem {
         assert_eq!(nb_agent_to_spawn, pers_sys.get_nb_agents());
     }
 
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     struct AgentTestMsg {
         id: usize,
         id_other_agent: usize,
     }
 
-    #[derive(Clone, Eq, PartialEq)]
+    impl Content for AgentTestMsg {}
+
+    #[derive(Serialize, Deserialize, Clone, Debug)]
     enum ProtocolGreeting {
         Greeting(usize),
     }
 
-    impl Payload for ProtocolGreeting {
-        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(ProtocolGreeting::Greeting(0)) }
-
-        fn serialize(&self) -> Vec<u8> { vec![] }
-    }
+    impl Content for ProtocolGreeting {}
 
     impl Agent for AgentTestMsg {
-        type P = ProtocolGreeting;
+        type C = ProtocolGreeting;
 
         fn id(&self) -> usize { self.id }
 
@@ -264,26 +260,35 @@ mod test_sytem {
 
         fn is_dead(&self) -> bool { false }
 
-        fn handle_message(&mut self, packet: &Packet<Self::P>) {
-            match packet.message {
+        fn handle_message(&mut self, message: &Message<Self::C>) {
+            match message.content {
                 ProtocolGreeting::Greeting(id_agent) => { 
                     self.id_other_agent = id_agent
                 },
             }
         }
 
-        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::C>>> {
             Some(vec! [
-                Message {
-                    priority: 1,
-                    recipient: Recipient::Agent{ agent_id: 1 - self.id(), system_id: 0 },
-                    message: ProtocolGreeting::Greeting(self.id()),
-                }
+                Message::new(
+                    Performative::Inform,
+                    Recipient::Agent{ agent_id: 1 - self.id(), system_id: 0 },
+                    0,
+                    1,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ProtocolGreeting::Greeting(self.id()),
+                )
             ])
         }
     }
 
+    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgFactory;
+
+    impl Content for AgentTestMsgFactory{}
 
     impl AgentFactory<AgentTestMsg> for AgentTestMsgFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsg {
@@ -311,12 +316,15 @@ mod test_sytem {
         dispatcher.dispatch(&mut resources);
     }
 
+    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgBroadcast {
         id: usize,
     }
 
+    impl Content for AgentTestMsgBroadcast{}
+
     impl Agent for AgentTestMsgBroadcast {
-        type P = ProtocolGreeting;
+        type C = ProtocolGreeting;
 
         fn id(&self) -> usize { self.id }
 
@@ -324,26 +332,35 @@ mod test_sytem {
 
         fn is_dead(&self) -> bool { false }
 
-        fn handle_message(&mut self, packet: &Packet<Self::P>) {
-            match packet.message {
+        fn handle_message(&mut self, message: &Message<Self::C>) {
+            match message.content {
                 ProtocolGreeting::Greeting(id) => {
                     println!("I'm {} and I got Hello from {}", self.id(), id);
                 },
             }
         }
 
-        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::C>>> {
             Some(vec! [
-                Message {
-                    priority: 1,
-                    recipient: Recipient::Broadcast{ system_id: None },
-                    message: ProtocolGreeting::Greeting(self.id()),
-                }
+                Message::new(
+                    Performative::Inform,
+                    Recipient::Broadcast{ system_id: None },
+                    0,
+                    1,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ProtocolGreeting::Greeting(self.id()),
+                )
             ])
         }
     }
 
+    #[derive(Serialize, Deserialize, Clone)]
     struct GentTestMsgBroadcastFactory;
+
+    impl Content for GentTestMsgBroadcastFactory{}
 
     impl AgentFactory<AgentTestMsgBroadcast> for GentTestMsgBroadcastFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsgBroadcast {
@@ -369,25 +386,24 @@ mod test_sytem {
         dispatcher.dispatch(&mut resources);
     }
 
+    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgBetweenSystem {
         id: usize,
         pos: (u8, u8),
         id_other_sytem: u8,
     }
 
-    #[derive(Clone, Eq, PartialEq)]
+    impl Content for AgentTestMsgBetweenSystem {}
+
+    #[derive(Serialize, Deserialize, Clone)]
     enum ProtocolPos {
         Position(u8, u8),
     }
 
-    impl Payload for ProtocolPos {
-        fn deserialize(bytes: &[u8]) -> Result<Self, ()> { Ok(ProtocolPos::Position(0, 0)) }
-
-        fn serialize(&self) -> Vec<u8> { unimplemented!() }
-    }
+    impl Content for ProtocolPos{}
 
     impl Agent for AgentTestMsgBetweenSystem {
-        type P = ProtocolPos;
+        type C = ProtocolPos;
 
         fn id(&self) -> usize { self.id }
 
@@ -395,26 +411,35 @@ mod test_sytem {
 
         fn is_dead(&self) -> bool { false }
 
-        fn handle_message(&mut self, packet: &Packet<Self::P>) {
-            match packet.message {
+        fn handle_message(&mut self, message: &Message<Self::C>) {
+            match message.content {
                 ProtocolPos::Position(x, y) => {
                     println!("The other agent is at the position x={} y={}", x, y);
                 },
             }
         }
 
-        fn act(&mut self) -> Option<Vec<Message<Self::P>>> {
+        fn act(&mut self) -> Option<Vec<Message<Self::C>>> {
             Some(vec! [
-                Message {
-                    priority: 1,
-                    recipient: Recipient::Agent{ agent_id: 0, system_id: self.id_other_sytem },
-                    message: ProtocolPos::Position(self.pos.0, self.pos.1),
-                }
+                Message::new(
+                    Performative::Confirm,
+                    Recipient::Agent{ agent_id: 0, system_id: self.id_other_sytem },
+                    0,
+                    1,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ProtocolPos::Position(self.pos.0, self.pos.1),
+                )
             ])
         }
     }
 
+    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgBetweenSystemFactory(u8);
+
+    impl Content for AgentTestMsgBetweenSystemFactory{}
 
     impl AgentFactory<AgentTestMsgBetweenSystem> for AgentTestMsgBetweenSystemFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsgBetweenSystem {
