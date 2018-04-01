@@ -10,6 +10,10 @@ cache: cargo
 
 addons:
   apt:
+    sources:
+      - sourceline: 'ppa:chris-lea/libsodium'
+      - sourceline: 'deb http://ppa.launchpad.net/chris-lea/libsodium/ubuntu trusty main'
+      - sourceline: 'deb-src http://ppa.launchpad.net/chris-lea/libsodium/ubuntu trusty main'
     packages:
       - libcurl4-openssl-dev
       - libelf-dev
