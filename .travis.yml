@@ -11,13 +11,12 @@ cache: cargo
 addons:
   apt:
     packages:
-      - libzmq3-dev
-      # Needed for cargo-coveralls
       - libcurl4-openssl-dev
       - libelf-dev
       - libdw-dev
       - cmake
-      - gcc
+      - binutils-dev
+      - libsodium-dev
 
 
 before_install:
@@ -25,6 +24,15 @@ before_install:
 
 
 before_script:
+  - |
+    curl -sSOL https://github.com/zeromq/libzmq/releases/download/v4.2.0/zeromq-4.2.0.tar.gz
+    tar zxf zeromq-4.2.0.tar.gz
+    cd zeromq-4.2.0
+    ./autogen.sh
+    ./configure --prefix=$HOME --with-libsodium
+    make && make install
+    cd ..
+
   - export PATH=$HOME/.cargo/bin:$PATH
   - which cargo-coveralls || cargo install cargo-travis
 
