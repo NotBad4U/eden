@@ -68,14 +68,14 @@ impl <A: Agent<C=C>, C: Content>AgentSystem<A, C> {
     }
 
     pub fn process_agent(&mut self) {
-        let sid = self.id();
         let occurred = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap_or(Duration::new(0,0));
 
-        for (_, a) in self.agents.iter_mut() {
-            if let Some(mut messages) = a.act() {
+        for (_, agent) in self.agents.iter_mut() {
+            if let Some(mut messages) = agent.act() {
                 for m in messages.iter_mut() {
+                    m.set_sender((self.id, agent.id()));
                     m.set_occurred(occurred.as_secs());
                 }
 

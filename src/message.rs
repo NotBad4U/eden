@@ -120,7 +120,6 @@ pub struct Message<C> {
 impl<C: Content> Message<C> {
     pub fn new(
         performative: Performative,
-        sender: (SystemId, AgentId),
         recipient: Recipient,
         ontology: u8,
         priority: u8,
@@ -132,7 +131,7 @@ impl<C: Content> Message<C> {
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
-            sender,
+            sender: (0, 0), // temp value
             recipient,
             performative,
             ontology,
@@ -205,7 +204,6 @@ mod test_message {
 
         let message_with_high_priority = Message::new(
             Performative::Confirm,
-            (0, 0),
             Recipient::Broadcast{ system_id: None },
             0,
             high_priority,
@@ -218,7 +216,6 @@ mod test_message {
 
         let message_with_low_priority = Message::new(
             Performative::Confirm,
-            (0, 0),
             Recipient::Broadcast{ system_id: None },
             0,
             low_priority,
@@ -239,7 +236,6 @@ mod test_message {
 
         let message = Message::new(
             Performative::Confirm,
-            (0, 0),
             Recipient::Broadcast{ system_id: None },
             0,
             0,

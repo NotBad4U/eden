@@ -52,12 +52,12 @@ impl <C: Content>Dispatcher<C> {
                     if self.is_a_message_for_a_local_system(&m) {
                         self.forward_message_to_local_sytem(m, system_id);
                     } else {
-                        self.forward_message_to_remote_sytem(m);
+                        self.forward_message_to_remote_sytem(&m);
                     }
                 },
                 Recipient::Broadcast{ system_id: None } => {
-                    self.broadcast_message_to_local_systems(m.clone());
-                    self.forward_message_to_remote_sytem(m);
+                    self.forward_message_to_remote_sytem(&m);
+                    self.broadcast_message_to_local_systems(&m);
                 },
             }
         }
