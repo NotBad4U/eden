@@ -1,4 +1,4 @@
-sudo: required
+sudo: false
 dist: trusty
 language: rust
 
@@ -21,7 +21,6 @@ addons:
 
 before_script:
   - |
-      pip install 'travis-cargo<0.2' --user &&
       export PATH=$HOME/.local/bin:$PATH &&
       export LIBRARY_PATH=$HOME/lib &&
       export LD_LIBRARY_PATH=$HOME/lib &&
@@ -37,7 +36,3 @@ before_script:
       make && make install
 
       cd $TRAVIS_BUILD_DIR
-
-script:
-  - travis-cargo build
-  - travis-cargo test
