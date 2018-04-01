@@ -8,6 +8,7 @@ use std::{
     net::SocketAddr,
 };
 
+const NO_FLAGS: i32 = 0;
 const NONBLOCKING_POLL: i64 = 0;
 const INBOX_CAPACITY: usize = 128;
 
@@ -74,8 +75,6 @@ impl <C: Content>Collector<C> {
     }
 
     fn collect_remotes_message(&mut self) {
-        let mut msg = ZmqMessage::new().unwrap();
-
         let mut sockets_to_poll: Vec<PollItem> =
             self.remotes_collector
                 .iter()
@@ -85,9 +84,9 @@ impl <C: Content>Collector<C> {
 
         for (index_collector, socket) in sockets_to_poll.iter().enumerate() {
             if socket.is_readable() {
-                while self.remotes_collector[index_collector].recv(&mut msg, 0).is_ok() {
+                while let Ok(msg) = self.remotes_collector[index_collector].recv_multipart(NO_FLAGS) {
                     if self.inbox.len() < self.inbox.capacity() {
-                        if let Ok(message) = Message::<C>::deserialize(&msg) {
+                        if let Ok(message) = Message::<C>::deserialize(&msg[1]) {
                             self.inbox.push_back(message);
                         } else {
                             trace!("Receive a message that can be deserialize");
