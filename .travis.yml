@@ -1,0 +1,43 @@
+sudo: false
+dist: trusty
+language: rust
+
+rust:
+  - stable
+  - nightly
+
+addons:
+  apt:
+    sources:
+      - sourceline: 'ppa:chris-lea/libsodium'
+      - sourceline: 'deb http://ppa.launchpad.net/chris-lea/libsodium/ubuntu trusty main'
+      - sourceline: 'deb-src http://ppa.launchpad.net/chris-lea/libsodium/ubuntu trusty main'
+    packages:
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - binutils-dev
+      - libsodium-dev
+
+before_script:
+  - |
+      export PATH=$HOME/.local/bin:$PATH &&
+      export LIBRARY_PATH=$HOME/lib &&
+      export LD_LIBRARY_PATH=$HOME/lib &&
+      export PKG_CONFIG_PATH=$HOME/lib/pkgconfig &&
+
+      cd /tmp
+
+      curl -sSOL https://github.com/zeromq/libzmq/releases/download/v4.2.0/zeromq-4.2.0.tar.gz
+      tar zxf zeromq-4.2.0.tar.gz
+      cd zeromq-4.2.0
+      ./autogen.sh
+      ./configure --prefix=$HOME --with-libsodium
+      make && make install
+      cd $TRAVIS_BUILD_DIR
+  - which cargo-coveralls || cargo install cargo-travis
+
+after_success:
+  - if [ "$TRAVIS_RUST_VERSION" == "nightly" ]; then
+      cargo coveralls --all --verbose;
+    fi
