@@ -1,6 +1,6 @@
 # Eden
 
-[![Build Status](https://travis-ci.org/NotBad4U/eden.svg?branch=master)](https://travis-ci.org/NotBad4U/eden)
+[![Build Status](https://travis-ci.org/NotBad4U/eden.svg?branch=master)](https://travis-ci.org/NotBad4U/eden) [![codecov](https://codecov.io/gh/NotBad4U/eden/branch/master/graph/badge.svg)](https://codecov.io/gh/NotBad4U/eden)
 
 A Multi-Agent distributed System ([MAS](https://en.wikipedia.org/wiki/Multi-agent_system)) in rust based on channel communication (`Zeromq`,`std::Channel`) and written in Data-oriented design.
 
