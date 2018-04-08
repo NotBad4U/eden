@@ -125,9 +125,9 @@ impl <A: Agent<C=C>, C: Content>AgentSystem<A, C> {
         self.dispatcher.add_local_sender(system_id, channel_sender);
     }
 
-    pub fn add_remote_observer_system(&mut self, remotes_system: (SystemId, SocketAddr)) {
-        trace!("Adding the remote observer system {} - {}", remotes_system.0, remotes_system.1);
-        self.collector.add_remote_collector(remotes_system.1);
+    pub fn add_remote_observer_system(&mut self, rs_id: SystemId, rs_addr: SocketAddr) {
+        trace!("Adding the remote observer system {} - {}", rs_id, rs_addr);
+        self.collector.add_remote_collector(rs_addr);
     }
 
     #[inline]
