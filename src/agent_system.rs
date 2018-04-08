@@ -285,10 +285,7 @@ mod test_sytem {
         }
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgFactory;
-
-    impl Content for AgentTestMsgFactory{}
 
     impl AgentFactory<AgentTestMsg> for AgentTestMsgFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsg {
@@ -357,10 +354,7 @@ mod test_sytem {
         }
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
     struct GentTestMsgBroadcastFactory;
-
-    impl Content for GentTestMsgBroadcastFactory{}
 
     impl AgentFactory<AgentTestMsgBroadcast> for GentTestMsgBroadcastFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsgBroadcast {
@@ -436,10 +430,7 @@ mod test_sytem {
         }
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
     struct AgentTestMsgBetweenSystemFactory(u8);
-
-    impl Content for AgentTestMsgBetweenSystemFactory{}
 
     impl AgentFactory<AgentTestMsgBetweenSystem> for AgentTestMsgBetweenSystemFactory {
         fn create(&self, agent_id: usize) -> AgentTestMsgBetweenSystem {
